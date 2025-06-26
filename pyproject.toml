@@ -1,0 +1,69 @@
+[project]
+name = "animesubs"
+version = "1.0.0"
+description = "Advanced subtitle translation library with AI integration"
+authors = [
+    {name = "enrell", email = "enrellsa10@proton.me"},
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License", 
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Text Processing :: Linguistic",
+]
+keywords = ["subtitle", "translation", "ai", "video", "ass", "srt"]
+
+dependencies = [
+    "pysubs2>=1.8.0",
+    "google-genai>=1.21.1",
+    "python-dotenv>=1.1.1",
+    "isort>=6.0.1",
+    "flake8>=7.3.0",
+    "mypy>=1.16.1",
+    "pytest>=8.4.1",
+    "ruff>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "pytest-mock>=3.10.0",
+    "black>=25.1.0",
+    "isort>=6.0.1",
+    "flake8>=7.3.0",
+    "mypy>=1.16.1",
+]
+
+test = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "pytest-mock>=3.10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/enrell/animesubs"
+Documentation = "https://github.com/enrell/animesubs#readme"
+Repository = "https://github.com/enrell/animesubs.git"
+Issues = "https://github.com/enrell/animesubs/issues"
+
+[project.scripts]
+animesubs-translate = "translate_single:main"
+animesubs-batch = "batch_translate:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["animesubs"]
