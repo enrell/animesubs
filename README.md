@@ -148,14 +148,6 @@ animesubs/
 - **Video**: MKV, MP4, AVI, MOV, WMV, FLV, WebM
 - **Subtitle**: ASS/SSA, SRT
 
-## Language Support
-
-Supports translation to various languages while preserving anime elements.
-
-## Configuration Options
-
-Key options include `batch_size` and `target_language`.
-
 ## Error Handling
 
 Includes comprehensive error handling for various issues.
@@ -168,19 +160,9 @@ Optimized through duplicate removal and batch processing.
 
 Includes backup files, dry run mode, and skipping existing translations.
 
-## Contributing
-
-See CONTRIBUTING.md (if it exists) or the contributing section in this README.
-
 ## License
 
 MIT License - see LICENSE file for details.
-
-## Author
-
-Created by **enrell**
-
-GitHub: https://github.com/enrell/animesubs
 
 ## Support
 
@@ -192,3 +174,4 @@ https://github.com/enrell/animesubs/issues
 - Built with [Google Gemini AI](https://ai.google.dev/) for translation
 - Uses [FFmpeg](https://ffmpeg.org/) for video processing
 - Powered by [uv](https://docs.astral.sh/uv/) for dependency management
+- Powered by [pysubs2](https://github.com/tkarabela/pysubs2) for parsing
