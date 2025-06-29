@@ -160,10 +160,6 @@ Optimized through duplicate removal and batch processing.
 
 Includes backup files, dry run mode, and skipping existing translations.
 
-## License
-
-MIT License - see LICENSE file for details.
-
 ## Support
 
 For issues and feature requests, please visit:
