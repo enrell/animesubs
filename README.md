@@ -2,6 +2,8 @@
 
 Advanced anime subtitle translation library with AI integration for batch processing video files.
 
+> Please, if you find any issues, open an issue or contact me at enrellsa10@proton.me
+
 ## Features
 
 - **Batch Processing**: Translate entire directories of video files automatically
