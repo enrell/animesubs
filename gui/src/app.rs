@@ -44,8 +44,16 @@ impl Home {
         Default::default()
     }
 
-    fn open_folder_dialog(&mut self) {
+    fn select_folder(&mut self) {
         let mut dialog = egui_file::FileDialog::select_folder(self.state.selected_folder.clone());
+        dialog.open();
+        self.file_dialog = Some(dialog);
+    }
+
+    fn select_file(&mut self) {
+        let mut dialog = egui_file::FileDialog::open_file(
+            self.state.selected_file.clone()
+        );
         dialog.open();
         self.file_dialog = Some(dialog);
     }
@@ -59,7 +67,8 @@ impl eframe::App for Home {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Top bar & menus
         ui::top_bar::top_bar(ctx, self, |this, action| match action {
-            ui::top_bar::TopBarAction::SelectFolder => this.open_folder_dialog(),
+            ui::top_bar::TopBarAction::SelectFile => this.select_file(),
+            ui::top_bar::TopBarAction::SelectFolder => this.select_folder(),
             ui::top_bar::TopBarAction::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             ui::top_bar::TopBarAction::ClearLogs => this.state.logs.clear(),
             ui::top_bar::TopBarAction::StartProcessing => {
@@ -73,7 +82,7 @@ impl eframe::App for Home {
 
         // Layout panels
         if ui::side_panel::side_panel(ctx, &mut self.state) {
-            self.open_folder_dialog();
+            self.select_folder();
         }
         ui::main_panel::main_panel(ctx, &mut self.state, self.last_error.as_deref());
 

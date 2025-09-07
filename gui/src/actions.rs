@@ -2,8 +2,15 @@
 //! These would eventually call into the Python translation backend (via FFI/CLI/API).
 
 use crate::AppState;
-use anyhow::{Result, bail};
+use anyhow::{bail, Ok, Result};
 use std::path::Path;
+
+pub fn select_file(state: &mut AppState, file: impl AsRef<Path>) -> Result<()> {
+    let path = file.as_ref().to_path_buf();
+    state.selected_file = Some(path.clone());
+    state.push_log(format!("Selected file: {}", path.display()));
+    Ok(())
+}
 
 pub fn select_folder(state: &mut AppState, folder: impl AsRef<Path>) -> Result<()> {
     let path = folder.as_ref().to_path_buf();

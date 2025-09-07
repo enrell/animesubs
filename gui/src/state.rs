@@ -8,6 +8,7 @@ use std::path::PathBuf;
 #[serde(default)]
 pub struct AppState {
     pub project_label: String,
+    pub selected_file: Option<PathBuf>,
     pub selected_folder: Option<PathBuf>,
     pub target_language: String,
     pub preserve_honorifics: bool,
