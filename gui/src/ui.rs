@@ -3,6 +3,7 @@ pub mod top_bar {
     use super::super::Home;
     #[derive(Debug, Clone, Copy)]
     pub enum TopBarAction {
+        SelectFile,
         SelectFolder,
         Quit,
         ClearLogs,
@@ -17,9 +18,12 @@ pub mod top_bar {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("Select Folder").clicked() {
-                        handle(app, TopBarAction::SelectFolder);
+                    if ui.button("Import file").clicked() {
+                        handle(app, TopBarAction::SelectFile);
                         ui.close();
+                    }
+                    if ui.button("Import folder").clicked() {
+                        handle(app, TopBarAction::SelectFolder);
                     }
                     if ui.button("Quit").clicked() {
                         handle(app, TopBarAction::Quit);
@@ -38,7 +42,7 @@ pub mod top_bar {
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     egui::widgets::global_theme_preference_buttons(ui);
-                    ui.label("AnimeSubs GUI");
+                    ui.label("AnimeSubs");
                 });
             });
         });
