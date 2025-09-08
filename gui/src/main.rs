@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use gui::detect_os_dark;
+
 trait ViewportBuilderIconExt {
     fn with_icon_if_some(self, icon: Option<egui::IconData>) -> Self;
 }
@@ -15,10 +17,33 @@ impl ViewportBuilderIconExt for egui::ViewportBuilder {
 }
 
 fn main() -> eframe::Result {
-    env_logger::init();
+    let mut builder = env_logger::Builder::new();
+    builder.filter_level(log::LevelFilter::Info);
+
+    #[cfg(debug_assertions)]
+    {
+        // Carrega exclusivamente do arquivo .env local se existir
+        let debug_enabled = std::fs::read_to_string(".env")
+            .ok()
+            .and_then(|content| {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.starts_with('#') || line.is_empty() { continue; }
+                    if let Some(rest) = line.strip_prefix("GUI_DEBUG=") {
+                        return Some(rest.trim_matches(|c| c=='"' || c=='\'')).map(|v| v.to_string());
+                    }
+                }
+                None
+            })
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if debug_enabled { builder.filter_level(log::LevelFilter::Debug); }
+    }
+    builder.init();
 
     // Pre-detect system theme (Windows registry; fallback light=false)
     let dark_pref = detect_os_dark();
+    log::debug!("main: dark_pref={}", dark_pref);
     let initial_icon = if dark_pref {
         eframe::icon_data::from_png_bytes(&include_bytes!("../assets/dark_icon.png")[..])
     } else {
@@ -40,47 +65,4 @@ fn main() -> eframe::Result {
         native_options,
         Box::new(|cc| Ok(Box::new(gui::Home::new_with_forced_theme(cc, dark_pref)))),
     )
-}
-
-#[cfg(windows)]
-fn detect_os_dark() -> bool {
-    use winreg::RegKey;
-    use winreg::enums::HKEY_CURRENT_USER;
-    // Windows stores: 0 = dark, 1 = light
-    const PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-    const VALUE: &str = "AppsUseLightTheme";
-    if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER).open_subkey(PATH) {
-        if let Ok(val) = hkcu.get_value::<u32, _>(VALUE) {
-            return val == 0;
-        }
-    }
-    false
-}
-
-#[cfg(not(windows))]
-fn detect_os_dark() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        use core_foundation::base::{CFRelease, TCFType};
-        use core_foundation::preferences::CFPreferencesCopyAppValue;
-        use core_foundation::string::{CFString, CFStringRef};
-        // Key: AppleInterfaceStyle (exists and equals "Dark" when dark mode enabled)
-        let key = CFString::new("AppleInterfaceStyle");
-        let app_id = CFString::new("NSGlobalDomain");
-        unsafe {
-            let value_ref =
-                CFPreferencesCopyAppValue(key.as_concrete_TypeRef(), app_id.as_concrete_TypeRef());
-            if !value_ref.is_null() {
-                let cf_str = CFString::wrap_under_get_rule(value_ref as CFStringRef);
-                let is_dark = cf_str.to_string().to_ascii_lowercase().contains("dark");
-                // value_ref retained by wrap_under_get_rule; no manual release needed here.
-                return is_dark;
-            }
-        }
-        return false;
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        false
-    }
 }

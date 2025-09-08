@@ -10,6 +10,8 @@ use crate::state::AppState;
 use crate::ui;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+#[cfg(any(windows, target_os = "macos"))]
+use crate::detect_os_dark;
 
 fn load_icon_from_bytes(bytes: &[u8]) -> Result<Arc<egui::IconData>, Box<dyn std::error::Error>> {
     let image = image::load_from_memory(bytes)?.into_rgba8();
@@ -134,6 +136,10 @@ impl eframe::App for Home {
             .unwrap_or(true);
 
         if should_check_theme {
+            // Prefer OS-level detection on supported platforms; fall back to egui visuals otherwise
+            #[cfg(any(windows, target_os = "macos"))]
+            let current_theme_dark = detect_os_dark();
+            #[cfg(not(any(windows, target_os = "macos")))]
             let current_theme_dark = ctx.style().visuals.dark_mode;
             if self.last_theme_dark != Some(current_theme_dark) {
                 self.last_theme_dark = Some(current_theme_dark);
