@@ -22,11 +22,18 @@ egui = "0.32.2"
 egui_file = "0.23.1"
 log = "0.4.28"
 anyhow = "1.0.95"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 serde = { version = "1.0.219",features = ["derive"]}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11.8"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10.1"
 
 [profile.dev.package."*"]
 opt-level = 2
