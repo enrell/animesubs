@@ -52,7 +52,7 @@ pub mod top_bar {
 pub mod side_panel {
     use crate::AppState;
     pub fn side_panel(ctx: &egui::Context, state: &mut AppState) -> bool {
-        let mut open_folder = false;
+        let open_folder = false;
         egui::SidePanel::left("left_side")
             .resizable(true)
             .default_width(240.0)
@@ -67,9 +67,6 @@ pub mod side_panel {
                     ui.label(format!("Folder: {}", folder.display()));
                 } else {
                     ui.label("No folder selected");
-                }
-                if ui.button("Select Folder...").clicked() {
-                    open_folder = true;
                 }
                 ui.separator();
                 ui.collapsing("About", |ui| {
