@@ -5,26 +5,24 @@ version = "0.1.0"
 edition = "2024"
 include = ["LICENSE-MIT", "**/*.rs","Cargo.toml"]
 
-rust-version = "1.89"
-
 [package.metadata.docs.rs]
 all-features = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-eframe = { version = "0.32.2", default-features = false, features = [
+eframe = { version = "0.33.2", default-features = false, features = [
   "default_fonts",
   "glow",
   "persistence", # restore app state when restarting the app
   "wayland"
 ]}
-egui = "0.32.2"
-egui_file = "0.23.1"
+egui = "0.33.2"
+egui_file = "0.24.0"
 log = "0.4.28"
-anyhow = "1.0.95"
-image = { version = "0.25", default-features = false, features = ["png"] }
+anyhow = "1.0.100"
+image = { version = "0.25.9", default-features = false, features = ["png"] }
 
-serde = { version = "1.0.219",features = ["derive"]}
+serde = { version = "1.0.228",features = ["derive"]}
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11.8"
