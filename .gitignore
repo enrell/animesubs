@@ -19,3 +19,5 @@ requirements-dev.txt
 .vscode
 
 .env
+
+.gemini
