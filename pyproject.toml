@@ -7,7 +7,7 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -32,6 +32,9 @@ dependencies = [
     "mypy>=1.16.1",
     "pytest>=8.4.1",
     "ruff>=0.12.0",
+    "openai>=2.8.1",
+    "ollama>=0.6.1",
+    "lmstudio>=1.5.0",
 ]
 
 [project.optional-dependencies]
@@ -58,8 +61,9 @@ Repository = "https://github.com/enrell/animesubs.git"
 Issues = "https://github.com/enrell/animesubs/issues"
 
 [project.scripts]
-animesubs-translate = "translate_single:main"
-animesubs-batch = "batch_translate:main"
+animesubs-translate = "animesubs.scripts.translate_single:main"
+animesubs-batch = "animesubs.scripts.batch_translate:main"
+test-single-file = "animesubs.scripts.test_single_file:main"
 
 [build-system]
 requires = ["hatchling"]
