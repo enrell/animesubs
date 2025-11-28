@@ -1,0 +1,41 @@
+name: build-and-bundle
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tauri:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: 1.1.x
+
+      - name: Install system deps (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-0 libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+            ffmpeg mkvtoolnix
+
+      - name: Install Node deps
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Build Tauri bundle
+        env:
+          TAURI_SKIP_SIGNING: true
+        run: bun run tauri build
