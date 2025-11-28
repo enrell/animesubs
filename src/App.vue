@@ -572,10 +572,10 @@ onMounted(async () => {
   await checkFFmpeg()
 
   // Handle OS-level file drops (Tauri)
-  const unlisten = await listen('tauri://file-drop', async (event) => {
-    const payload = (event as any).payload
-    const paths: string[] = payload?.paths || payload || []
-    if (Array.isArray(paths) && paths.length > 0) {
+  const unlistenFileDrop = await listen<string[] | { paths: string[] }>('tauri://file-drop', async (event) => {
+    const payload: any = event.payload
+    const paths = Array.isArray(payload) ? payload : Array.isArray(payload?.paths) ? payload.paths : []
+    if (paths.length > 0) {
       isDragging.value = false
       loadingFiles.value = true
       try {
@@ -586,8 +586,18 @@ onMounted(async () => {
     }
   })
 
+  const preventDefaults = (e: Event) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  window.addEventListener('dragover', preventDefaults)
+  window.addEventListener('drop', preventDefaults)
+
   onUnmounted(() => {
-    unlisten()
+    unlistenFileDrop()
+    window.removeEventListener('dragover', preventDefaults)
+    window.removeEventListener('drop', preventDefaults)
   })
 })
 
@@ -703,16 +713,24 @@ const addFiles = async (paths: string[]) => {
 }
 
 const handleDrop = async (e: DragEvent) => {
+  e.preventDefault()
   isDragging.value = false
-  const files = e.dataTransfer?.files
-  if (!files || files.length === 0) return
+  const dt = e.dataTransfer
+  if (!dt) return
 
   const paths: string[] = []
-  for (const f of Array.from(files)) {
-    // In Tauri, dropped files carry an absolute path
-    const path = (f as any).path || f.name
-    if (path) {
-      paths.push(path)
+  if (dt.files?.length) {
+    for (const f of Array.from(dt.files)) {
+      const path = (f as any).path || f.name
+      if (path) paths.push(path)
+    }
+  } else if (dt.items?.length) {
+    for (const item of Array.from(dt.items)) {
+      const f = item.getAsFile()
+      if (f) {
+        const path = (f as any).path || f.name
+        if (path) paths.push(path)
+      }
     }
   }
 
