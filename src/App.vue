@@ -571,8 +571,16 @@ onMounted(async () => {
   // Then check FFmpeg with loaded settings
   await checkFFmpeg()
 
-  // Handle OS-level file drops (Tauri)
-  const unlistenFileDrop = await listen<string[] | { paths: string[] }>('tauri://file-drop', async (event) => {
+  const preventDefaults = (e: Event) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  window.addEventListener('dragover', preventDefaults)
+  window.addEventListener('drop', preventDefaults)
+
+  // Better drag/drop via Tauri events
+  const unlistenDrop = await listen<string[] | { paths: string[] }>('tauri://file-drop', async (event) => {
     const payload: any = event.payload
     const paths = Array.isArray(payload) ? payload : Array.isArray(payload?.paths) ? payload.paths : []
     if (paths.length > 0) {
@@ -586,16 +594,18 @@ onMounted(async () => {
     }
   })
 
-  const preventDefaults = (e: Event) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }
+  const unlistenHover = await listen('tauri://file-drop-hover', () => {
+    isDragging.value = true
+  })
 
-  window.addEventListener('dragover', preventDefaults)
-  window.addEventListener('drop', preventDefaults)
+  const unlistenCancel = await listen('tauri://file-drop-cancelled', () => {
+    isDragging.value = false
+  })
 
   onUnmounted(() => {
-    unlistenFileDrop()
+    unlistenDrop()
+    unlistenHover()
+    unlistenCancel()
     window.removeEventListener('dragover', preventDefaults)
     window.removeEventListener('drop', preventDefaults)
   })
