@@ -468,7 +468,21 @@ interface SubtitleData {
 }
 
 // Theme
-const isDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
+const THEME_KEY = 'animesubs-theme'
+
+const getInitialTheme = () => {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    if (saved === 'dark' || saved === 'light') {
+      return saved === 'dark'
+    }
+  } catch (e) {
+    console.error('Failed to read theme preference:', e)
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+const isDark = ref(getInitialTheme())
 const theme = computed(() => isDark.value ? darkTheme : null)
 
 const themeOverrides = computed<GlobalThemeOverrides>(() => ({
@@ -498,6 +512,11 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
+  try {
+    localStorage.setItem(THEME_KEY, isDark.value ? 'dark' : 'light')
+  } catch (e) {
+    console.error('Failed to save theme preference:', e)
+  }
 }
 
 // Settings
@@ -1258,7 +1277,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px 24px;
+  padding: 36px 24px;
   text-align: center;
   gap: 16px;
 }
@@ -1275,10 +1294,11 @@ body {
 }
 
 .drop-icon {
-  width: 72px;
-  height: 72px;
+  width: 88px;
+  height: 88px;
   object-fit: contain;
-  opacity: 0.9;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: optimizeQuality;
 }
 
 .files-card,
@@ -1397,7 +1417,7 @@ body {
   }
 
   .drop-zone-content {
-    padding: 24px 12px;
+    padding: 20px 10px;
   }
 
   .drop-zone-content h2 {
@@ -1409,8 +1429,8 @@ body {
   }
 
   .drop-icon {
-    width: 56px;
-    height: 56px;
+    width: 64px;
+    height: 64px;
   }
 
   :deep(.options-card .n-grid) {
