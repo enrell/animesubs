@@ -2,6 +2,8 @@
 
 Desktop app (Tauri + Vue 3 + TypeScript) to extract, translate and embed subtitles into videos.
 
+<img width="852" height="652" alt="image" src="https://github.com/user-attachments/assets/e4de8e88-44db-4e4a-ab31-ec8771bddb81" />
+
 ## Features
 - Drag-and-drop or pick videos; auto-detect subtitle tracks.
 - Translate via pluggable LLM providers (OpenAI-like, Gemini, Ollama/LmStudio).
