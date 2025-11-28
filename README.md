@@ -1,7 +1,30 @@
-# Tauri + Vue + TypeScript
+# AnimeSubs
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Desktop app (Tauri + Vue 3 + TypeScript) to extract, translate and embed subtitles into videos.
 
-## Recommended IDE Setup
+## Features
+- Drag-and-drop or pick videos; auto-detect subtitle tracks.
+- Translate via pluggable LLM providers (OpenAI-like, Gemini, Ollama/LmStudio).
+- Optional embedding of translated subs using mkvmerge (preferred) or ffmpeg.
+- Preserves original tracks; skips karaoke/music lines.
 
-- [VS Code](https://code.visualstudio.com/) + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=Vue.volar) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## Requirements
+- `ffmpeg` available in `PATH` (or set a custom path in Settings).
+- `mkvmerge` (MKVToolNix) in `PATH` for best embedding; falls back to ffmpeg if missing.
+- Node/Bun for frontend build, Rust toolchain for Tauri.
+
+## Setup
+```bash
+bun install
+# Dev
+bun run tauri dev
+# Build bundles (all platforms)
+bun run tauri build
+```
+
+## Platform notes
+- **Windows**: App auto-detects common install paths for `ffmpeg.exe` and `mkvmerge.exe`; ensure they’re installed or on `PATH`.
+- **macOS/Linux**: Ensure `ffmpeg` and `mkvmerge` are installed (e.g., `brew install ffmpeg mkvtoolnix`).
+
+## License
+MIT
