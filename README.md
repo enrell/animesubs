@@ -4,6 +4,8 @@ Desktop app (Tauri + Vue 3 + TypeScript) to extract, translate and embed subtitl
 
 <img width="852" height="652" alt="image" src="https://github.com/user-attachments/assets/e4de8e88-44db-4e4a-ab31-ec8771bddb81" />
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 ## Features
 - Drag-and-drop or pick videos; auto-detect subtitle tracks.
 - Translate via pluggable LLM providers (OpenAI-like, Gemini, Ollama/LmStudio).
@@ -29,4 +31,4 @@ bun run tauri build
 - **macOS/Linux**: Ensure `ffmpeg` and `mkvmerge` are installed (e.g., `brew install ffmpeg mkvtoolnix`).
 
 ## License
-MIT
+[LICENSE](LICENSE)
