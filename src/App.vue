@@ -366,7 +366,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, triggerRef } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, triggerRef } from 'vue'
 import {
   NConfigProvider,
   NMessageProvider,
@@ -416,6 +416,7 @@ import {
 } from '@vicons/ionicons5'
 import { open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import SettingsModal, { type Settings } from './components/SettingsModal.vue'
 
 // Types
@@ -569,6 +570,25 @@ onMounted(async () => {
   loadTranslationOptions()
   // Then check FFmpeg with loaded settings
   await checkFFmpeg()
+
+  // Handle OS-level file drops (Tauri)
+  const unlisten = await listen('tauri://file-drop', async (event) => {
+    const payload = (event as any).payload
+    const paths: string[] = payload?.paths || payload || []
+    if (Array.isArray(paths) && paths.length > 0) {
+      isDragging.value = false
+      loadingFiles.value = true
+      try {
+        await addFiles(paths)
+      } finally {
+        loadingFiles.value = false
+      }
+    }
+  })
+
+  onUnmounted(() => {
+    unlisten()
+  })
 })
 
 // File selection
