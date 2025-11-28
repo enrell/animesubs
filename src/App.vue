@@ -65,9 +65,7 @@
                   @drop.prevent="handleDrop"
                 >
                   <div class="drop-zone-content">
-                    <n-icon size="64" :color="isDragging ? 'var(--primary-color)' : 'var(--text-color-3)'">
-                      <cloud-upload-outline />
-                    </n-icon>
+                    <img src="/icon.png" alt="AnimeSubs" class="drop-icon" />
                     <h2>Drop video files or folder here</h2>
                     <p>Supports MKV, MP4, WebM, AVI, and other FFmpeg formats</p>
                     <n-space>
@@ -404,7 +402,6 @@ import {
   SunnyOutline,
   MoonOutline,
   LanguageOutline,
-  CloudUploadOutline,
   DocumentOutline,
   FolderOpenOutline,
   TrashOutline,
@@ -1231,15 +1228,16 @@ body {
 .app-main {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: 16px;
 }
 
 .main-content {
-  max-width: 800px;
+  width: min(960px, 100%);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  padding-bottom: 24px;
 }
 
 .drop-zone {
@@ -1260,7 +1258,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 32px 24px;
   text-align: center;
   gap: 16px;
 }
@@ -1274,6 +1272,13 @@ body {
 .drop-zone-content p {
   color: var(--n-text-color-3);
   margin-bottom: 8px;
+}
+
+.drop-icon {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  opacity: 0.9;
 }
 
 .files-card,
@@ -1377,5 +1382,44 @@ body {
 .progress-eta {
   color: var(--n-text-color-3);
   font-size: 13px;
+}
+
+@media (max-width: 960px) {
+  .main-content {
+    width: 100%;
+    padding: 0 8px 24px;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-header {
+    padding: 10px 16px;
+  }
+
+  .drop-zone-content {
+    padding: 24px 12px;
+  }
+
+  .drop-zone-content h2 {
+    font-size: 18px;
+  }
+
+  .drop-zone-content p {
+    font-size: 13px;
+  }
+
+  .drop-icon {
+    width: 56px;
+    height: 56px;
+  }
+
+  :deep(.options-card .n-grid) {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  .action-bar {
+    padding: 4px 0;
+  }
 }
 </style>
