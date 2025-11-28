@@ -416,7 +416,7 @@ import {
 } from '@vicons/ionicons5'
 import { open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow, type DragDropEvent } from '@tauri-apps/api/window'
 import SettingsModal, { type Settings } from './components/SettingsModal.vue'
 
 // Types
@@ -579,33 +579,33 @@ onMounted(async () => {
   window.addEventListener('dragover', preventDefaults)
   window.addEventListener('drop', preventDefaults)
 
-  // Better drag/drop via Tauri events
-  const unlistenDrop = await listen<string[] | { paths: string[] }>('tauri://file-drop', async (event) => {
-    const payload: any = event.payload
-    const paths = Array.isArray(payload) ? payload : Array.isArray(payload?.paths) ? payload.paths : []
-    if (paths.length > 0) {
+  // Better drag/drop via Tauri window helper
+  const unlistenDragDrop = await getCurrentWindow().onDragDropEvent(async (event) => {
+    const payload = event.payload as DragDropEvent
+    if (payload.type === 'enter') {
+      isDragging.value = true
+      return
+    }
+    if (payload.type === 'leave') {
       isDragging.value = false
-      loadingFiles.value = true
-      try {
-        await addFiles(paths)
-      } finally {
-        loadingFiles.value = false
+      return
+    }
+    if (payload.type === 'drop') {
+      isDragging.value = false
+      const paths = payload.paths || []
+      if (paths.length > 0) {
+        loadingFiles.value = true
+        try {
+          await addFiles(paths)
+        } finally {
+          loadingFiles.value = false
+        }
       }
     }
   })
 
-  const unlistenHover = await listen('tauri://file-drop-hover', () => {
-    isDragging.value = true
-  })
-
-  const unlistenCancel = await listen('tauri://file-drop-cancelled', () => {
-    isDragging.value = false
-  })
-
   onUnmounted(() => {
-    unlistenDrop()
-    unlistenHover()
-    unlistenCancel()
+    unlistenDragDrop()
     window.removeEventListener('dragover', preventDefaults)
     window.removeEventListener('drop', preventDefaults)
   })
