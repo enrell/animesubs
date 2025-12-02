@@ -88,6 +88,7 @@ Go to Settings and configure your preferred provider:
   - *Formal/Casual* - Tone adjustment
   - *Honorifics* - Preserve Japanese honorifics (-san, -kun, etc.)
 - **Batch Size**: Lines per API call (default: 100)
+- **Concurrency**: Number of parallel API requests (1-10)
 - **Request Delay**: Milliseconds between API calls to avoid rate limits
 
 ### Advanced Features
@@ -96,18 +97,50 @@ Go to Settings and configure your preferred provider:
 - **Subtitle Format**: Output as SRT, ASS, or WebVTT
 
 ## Platform Notes
-- **Windows**: Auto-detects common install paths for `ffmpeg.exe` and `mkvmerge.exe`
-- **macOS/Linux**: Install via package manager:
+
+### Windows
+- Auto-detects FFmpeg and MKVToolNix in common install paths:
+  - `C:\Program Files\FFmpeg\bin\`
+  - `C:\Program Files\MKVToolNix\`
+- Download FFmpeg: https://ffmpeg.org/download.html#build-windows
+- Download MKVToolNix: https://mkvtoolnix.download/downloads.html#windows
+
+### macOS
+- Install via Homebrew (recommended):
   ```bash
-  # macOS
   brew install ffmpeg mkvtoolnix
-  
+  ```
+- Auto-detects binaries in:
+  - `/opt/homebrew/bin/` (Apple Silicon)
+  - `/usr/local/bin/` (Intel Mac)
+  - `/Applications/MKVToolNix.app/Contents/MacOS/`
+
+### Linux
+- Install via package manager:
+  ```bash
   # Ubuntu/Debian
   sudo apt install ffmpeg mkvtoolnix
+  
+  # Fedora
+  sudo dnf install ffmpeg mkvtoolnix
   
   # Arch Linux
   sudo pacman -S ffmpeg mkvtoolnix-cli
   ```
+
+## Troubleshooting
+
+### FFmpeg not found
+1. Check if FFmpeg is in your system PATH: `ffmpeg -version`
+2. If installed but not detected, set the custom path in Settings > Output > FFmpeg Path
+
+### Translation errors
+- **Rate limit**: Increase "Request Delay" in Advanced Options
+- **Timeout**: Reduce "Batch Size" or "Concurrency"
+- **API errors**: Verify your API key and endpoint in Settings
+
+### macOS security warning
+If macOS blocks the app, go to System Preferences > Security & Privacy and allow it.
 
 ## License
 [GPL-3.0](LICENSE)
