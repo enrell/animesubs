@@ -1,9 +1,7 @@
 name: build-and-bundle
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 jobs:
   tauri:
