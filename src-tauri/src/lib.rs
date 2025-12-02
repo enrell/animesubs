@@ -152,6 +152,25 @@ pub struct LLMConfig {
 }
 
 // ============================================================================
+// Path Resolution Utilities
+// ============================================================================
+
+/// Find an executable in the system PATH
+fn find_executable_in_path(names: &[&str]) -> Option<PathBuf> {
+    if let Some(paths) = env::var_os("PATH") {
+        for p in env::split_paths(&paths) {
+            for name in names {
+                let candidate = p.join(name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    None
+}
+
+// ============================================================================
 // FFmpeg Path Resolution
 // ============================================================================
 
@@ -161,11 +180,31 @@ fn get_ffmpeg_path(custom_path: Option<String>) -> String {
             return path;
         }
     }
+    
+    // Try to find in PATH first
+    let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    if let Some(p) = find_executable_in_path(&[exe_name]) {
+        return p.to_string_lossy().to_string();
+    }
+    
+    // Platform-specific fallback locations
     if cfg!(windows) {
         let candidates = [
             r"C:\Program Files\FFmpeg\bin\ffmpeg.exe",
             r"C:\Program Files (x86)\FFmpeg\bin\ffmpeg.exe",
             r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\tools\ffmpeg\bin\ffmpeg.exe",
+        ];
+        for c in candidates {
+            if Path::new(c).exists() {
+                return c.to_string();
+            }
+        }
+    } else if cfg!(target_os = "macos") {
+        let candidates = [
+            "/opt/homebrew/bin/ffmpeg",        // Apple Silicon Homebrew
+            "/usr/local/bin/ffmpeg",           // Intel Mac Homebrew
+            "/opt/local/bin/ffmpeg",           // MacPorts
         ];
         for c in candidates {
             if Path::new(c).exists() {
@@ -173,22 +212,58 @@ fn get_ffmpeg_path(custom_path: Option<String>) -> String {
             }
         }
     }
+    
     "ffmpeg".to_string()
 }
 
 fn get_ffprobe_path(custom_ffmpeg_path: Option<String>) -> String {
+    // If custom ffmpeg path provided, derive ffprobe from it
     if let Some(path) = custom_ffmpeg_path {
         if !path.is_empty() {
-            // Try to derive ffprobe path from ffmpeg path
             let path = Path::new(&path);
             if let Some(parent) = path.parent() {
-                let ffprobe = parent.join("ffprobe");
+                // On Windows, need to check for .exe
+                let ffprobe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+                let ffprobe = parent.join(ffprobe_name);
                 if ffprobe.exists() {
                     return ffprobe.to_string_lossy().to_string();
                 }
             }
         }
     }
+    
+    // Try to find in PATH
+    let exe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    if let Some(p) = find_executable_in_path(&[exe_name]) {
+        return p.to_string_lossy().to_string();
+    }
+    
+    // Platform-specific fallback locations
+    if cfg!(windows) {
+        let candidates = [
+            r"C:\Program Files\FFmpeg\bin\ffprobe.exe",
+            r"C:\Program Files (x86)\FFmpeg\bin\ffprobe.exe",
+            r"C:\ffmpeg\bin\ffprobe.exe",
+            r"C:\tools\ffmpeg\bin\ffprobe.exe",
+        ];
+        for c in candidates {
+            if Path::new(c).exists() {
+                return c.to_string();
+            }
+        }
+    } else if cfg!(target_os = "macos") {
+        let candidates = [
+            "/opt/homebrew/bin/ffprobe",
+            "/usr/local/bin/ffprobe",
+            "/opt/local/bin/ffprobe",
+        ];
+        for c in candidates {
+            if Path::new(c).exists() {
+                return c.to_string();
+            }
+        }
+    }
+    
     "ffprobe".to_string()
 }
 
@@ -760,24 +835,19 @@ fn convert_subtitle_to_utf8(subtitle_path: &str) -> Result<(String, Option<PathB
     Ok((temp_path.to_string_lossy().to_string(), Some(temp_path)))
 }
 
-fn find_executable_in_path(names: &[&str]) -> Option<PathBuf> {
-    if let Some(paths) = env::var_os("PATH") {
-        for p in env::split_paths(&paths) {
-            for name in names {
-                let candidate = p.join(name);
-                if candidate.exists() {
-                    return Some(candidate);
-                }
-            }
-        }
-    }
-    None
-}
-
 fn resolve_mkvmerge_path() -> Option<String> {
-    if let Some(p) = find_executable_in_path(&["mkvmerge", "mkvmerge.exe"]) {
+    // Check PATH first
+    let exe_names: &[&str] = if cfg!(windows) {
+        &["mkvmerge.exe"]
+    } else {
+        &["mkvmerge"]
+    };
+    
+    if let Some(p) = find_executable_in_path(exe_names) {
         return Some(p.to_string_lossy().to_string());
     }
+    
+    // Platform-specific fallback locations
     if cfg!(windows) {
         let candidates = [
             r"C:\Program Files\MKVToolNix\mkvmerge.exe",
@@ -788,7 +858,20 @@ fn resolve_mkvmerge_path() -> Option<String> {
                 return Some(c.to_string());
             }
         }
+    } else if cfg!(target_os = "macos") {
+        let candidates = [
+            "/opt/homebrew/bin/mkvmerge",
+            "/usr/local/bin/mkvmerge",
+            "/opt/local/bin/mkvmerge",
+            "/Applications/MKVToolNix.app/Contents/MacOS/mkvmerge",
+        ];
+        for c in candidates {
+            if Path::new(c).exists() {
+                return Some(c.to_string());
+            }
+        }
     }
+    
     None
 }
 

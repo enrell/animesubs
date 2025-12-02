@@ -2,7 +2,8 @@ name: build-and-bundle
 
 on:
   push:
-  pull_request:
+    tags:
+      - "v*"
 
 jobs:
   tauri:
