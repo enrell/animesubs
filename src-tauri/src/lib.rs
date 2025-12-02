@@ -1,5 +1,6 @@
 use chardetng::EncodingDetector;
 use encoding_rs::Encoding;
+use futures::future::join_all;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -7,7 +8,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Mutex;
 
 // ============================================================================
 // Data Structures
@@ -1051,8 +1054,12 @@ async fn translate_subtitles(
     source_lang: String,
     target_lang: String,
     batch_size: Option<usize>,
+    concurrency: Option<usize>,
+    request_delay: Option<u64>,
 ) -> Result<SubtitleData, String> {
-    let batch_size = batch_size.unwrap_or(20); // Default batch size
+    let batch_size = batch_size.unwrap_or(20);
+    let concurrency = concurrency.unwrap_or(1).max(1).min(10); // Clamp between 1-10
+    let request_delay_ms = request_delay.unwrap_or(0);
     let total_lines = subtitle_data.lines.len();
 
     if total_lines == 0 {
@@ -1060,53 +1067,101 @@ async fn translate_subtitles(
     }
 
     let mut translated_lines = subtitle_data.lines.clone();
-    let mut translation_map: HashMap<usize, String> = HashMap::new();
+    let translation_map: Arc<Mutex<HashMap<usize, String>>> = Arc::new(Mutex::new(HashMap::new()));
+    let completed_batches: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
 
-    for (batch_idx, chunk) in subtitle_data.lines.chunks(batch_size).enumerate() {
-        let batch_lines: Vec<TranslationLine> = chunk
-            .iter()
-            .map(|line| TranslationLine {
-                id: line.index,
-                text: line.text.clone(),
-            })
-            .collect();
+    let batches: Vec<(usize, Vec<TranslationLine>)> = subtitle_data
+        .lines
+        .chunks(batch_size)
+        .enumerate()
+        .map(|(idx, chunk)| {
+            let batch_lines: Vec<TranslationLine> = chunk
+                .iter()
+                .map(|line| TranslationLine {
+                    id: line.index,
+                    text: line.text.clone(),
+                })
+                .collect();
+            (idx, batch_lines)
+        })
+        .collect();
 
-        match call_llm_api(&config, &batch_lines, &source_lang, &target_lang).await {
-            Ok(translations) => {
-                for translated in translations {
-                    translation_map.insert(translated.id, translated.text);
+    let total_batches = batches.len();
+
+    for batch_group in batches.chunks(concurrency) {
+        let mut handles = Vec::new();
+
+        for (batch_idx, batch_lines) in batch_group {
+            let config = config.clone();
+            let source_lang = source_lang.clone();
+            let target_lang = target_lang.clone();
+            let translation_map = Arc::clone(&translation_map);
+            let completed_batches = Arc::clone(&completed_batches);
+            let app = app.clone();
+            let batch_idx = *batch_idx;
+            let batch_lines = batch_lines.clone();
+
+            let handle = tokio::spawn(async move {
+                match call_llm_api(&config, &batch_lines, &source_lang, &target_lang).await {
+                    Ok(translations) => {
+                        let mut map = translation_map.lock().await;
+                        for translated in translations {
+                            map.insert(translated.id, translated.text);
+                        }
+
+                        let mut completed = completed_batches.lock().await;
+                        *completed += 1;
+
+                        // Emit progress event
+                        let progress = TranslationProgress {
+                            current_batch: *completed,
+                            total_batches,
+                            lines_translated: map.len(),
+                            total_lines,
+                            status: "translating".to_string(),
+                        };
+
+                        let _ = app.emit("translation-progress", &progress);
+                        eprintln!("Translation progress: {:?}", progress);
+
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let _ = app.emit(
+                            "translation-error",
+                            format!("Batch {} failed: {}", batch_idx + 1, e),
+                        );
+                        Err(format!(
+                            "Translation failed at batch {}: {}",
+                            batch_idx + 1,
+                            e
+                        ))
+                    }
                 }
+            });
 
-                // Emit progress event
-                let progress = TranslationProgress {
-                    current_batch: batch_idx + 1,
-                    total_batches: (total_lines + batch_size - 1) / batch_size,
-                    lines_translated: translation_map.len(),
-                    total_lines,
-                    status: "translating".to_string(),
-                };
+            handles.push(handle);
+        }
 
-                let _ = app.emit("translation-progress", &progress);
-                eprintln!("Translation progress: {:?}", progress);
+        let results = join_all(handles).await;
+
+        for result in results {
+            match result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(e),
+                Err(e) => return Err(format!("Task panicked: {}", e)),
             }
-            Err(e) => {
-                // Emit error event
-                let _ = app.emit(
-                    "translation-error",
-                    format!("Batch {} failed: {}", batch_idx + 1, e),
-                );
-                return Err(format!(
-                    "Translation failed at batch {}: {}",
-                    batch_idx + 1,
-                    e
-                ));
-            }
+        }
+
+        if request_delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(request_delay_ms)).await;
         }
     }
 
     // Apply translations
+    let map = translation_map.lock().await;
     for line in &mut translated_lines {
-        if let Some(translated_text) = translation_map.get(&line.index) {
+        if let Some(translated_text) = map.get(&line.index) {
             line.text = translated_text.clone();
         }
     }
@@ -1135,7 +1190,6 @@ fn reconstruct_ass(original_content: &str, translations: &[DialogLine]) -> Strin
     let translation_map: std::collections::HashMap<String, &str> = translations
         .iter()
         .map(|t| {
-            // Use original_with_formatting stripped as key to match
             let key = strip_ass_tags(&t.original_with_formatting)
                 .trim()
                 .to_lowercase();
@@ -1215,19 +1269,15 @@ fn reconstruct_ass(original_content: &str, translations: &[DialogLine]) -> Strin
                     style.contains(skip) || style.split_whitespace().any(|word| word == skip)
                 });
 
-                // Skip short lines (karaoke syllables)
                 let is_too_short = clean_original.trim().chars().count() < 3;
 
-                // Only translate if not skipped
                 if !should_skip
                     && !is_too_short
                     && !clean_original.trim().is_empty()
                     && !is_music_line
                 {
-                    // Look up translation by the original text
                     let lookup_key = clean_original.trim().to_lowercase();
                     if let Some(translated_text) = translation_map.get(&lookup_key) {
-                        // Reconstruct with translated text, preserving original formatting structure
                         let new_text = apply_ass_formatting(&original_text, translated_text);
                         let new_line = format!("{},{}", parts[..9].join(","), new_text);
                         result.push(new_line);
@@ -1243,16 +1293,13 @@ fn reconstruct_ass(original_content: &str, translations: &[DialogLine]) -> Strin
     result.join("\n")
 }
 
-/// Apply original ASS formatting to translated text
 fn apply_ass_formatting(original: &str, translated: &str) -> String {
-    // Extract leading formatting tags
     let tag_regex = Regex::new(r"^(\{[^}]*\})").unwrap();
     let leading_tags: String = tag_regex.find_iter(original).map(|m| m.as_str()).collect();
 
     // Convert newlines back to \N for ASS
     let formatted_translation = translated.replace("\n", "\\N");
 
-    // If original had leading tags, preserve them
     if !leading_tags.is_empty() {
         format!("{}{}", leading_tags, formatted_translation)
     } else {
@@ -1260,7 +1307,6 @@ fn apply_ass_formatting(original: &str, translated: &str) -> String {
     }
 }
 
-/// Reconstruct SRT file with translated dialog  
 fn reconstruct_srt(translations: &[DialogLine]) -> String {
     let mut result = Vec::new();
 
@@ -1274,7 +1320,6 @@ fn reconstruct_srt(translations: &[DialogLine]) -> String {
     result.join("\n")
 }
 
-/// Reconstruct VTT file with translated dialog
 fn reconstruct_vtt(translations: &[DialogLine]) -> String {
     let mut result = vec!["WEBVTT".to_string(), String::new()];
 
@@ -1287,7 +1332,6 @@ fn reconstruct_vtt(translations: &[DialogLine]) -> String {
     result.join("\n")
 }
 
-/// Save translated subtitles to file
 #[tauri::command]
 async fn save_translated_subtitles(
     translated_data: SubtitleData,
@@ -1296,12 +1340,10 @@ async fn save_translated_subtitles(
 ) -> Result<OperationResult, String> {
     let content = match translated_data.format.as_str() {
         "ass" | "ssa" => {
-            // For ASS, we need the original file to preserve formatting
             if let Some(original_path) = original_file_path {
                 let original_content = read_file_as_utf8(&original_path)?;
                 reconstruct_ass(&original_content, &translated_data.lines)
             } else if let Some(header) = &translated_data.ass_header {
-                // Use stored header + reconstruct events
                 let mut result = header.clone();
                 result.push_str("\n");
                 for line in &translated_data.lines {
@@ -1359,7 +1401,6 @@ async fn backup_subtitle(
         .get(track_index as usize)
         .ok_or("Subtitle track not found")?;
 
-    // Determine format based on codec
     let format = match track.codec.as_str() {
         "ass" | "ssa" => "ass",
         "webvtt" => "vtt",
@@ -1389,7 +1430,6 @@ async fn backup_subtitle(
     .await?;
 
     if result.success {
-        // Save backup metadata
         let backup_info = BackupInfo {
             original_path: video_path,
             backup_path: backup_path.to_string_lossy().to_string(),
@@ -1431,7 +1471,6 @@ async fn list_backups(video_path: String) -> Result<Vec<BackupInfo>, String> {
     let all_backups: Vec<BackupInfo> = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse backup metadata: {}", e))?;
 
-    // Filter backups for this specific video
     let video_path_normalized = Path::new(&video_path)
         .canonicalize()
         .map(|p| p.to_string_lossy().to_string())
@@ -1460,12 +1499,10 @@ async fn restore_subtitle(
 ) -> Result<OperationResult, String> {
     let ffmpeg = get_ffmpeg_path(ffmpeg_path);
 
-    // Verify backup file exists
     if !Path::new(&backup_path).exists() {
         return Err("Backup file not found".to_string());
     }
 
-    // Create a temporary output file
     let video_pathbuf = Path::new(&video_path);
     let parent = video_pathbuf.parent().unwrap_or(Path::new("."));
     let stem = video_pathbuf
@@ -1479,7 +1516,6 @@ async fn restore_subtitle(
 
     let temp_output = parent.join(format!("{}_restored.{}", stem, ext));
 
-    // Use ffmpeg to replace the subtitle track
     let result = Command::new(&ffmpeg)
         .args([
             "-i",
@@ -1515,7 +1551,6 @@ async fn restore_subtitle(
             data: None,
         })
     } else {
-        // Clean up temp file on failure
         let _ = fs::remove_file(&temp_output);
 
         Ok(OperationResult {
@@ -1528,13 +1563,11 @@ async fn restore_subtitle(
 
 #[tauri::command]
 async fn delete_backup(backup_path: String, video_path: String) -> Result<OperationResult, String> {
-    // Delete the backup file
     if Path::new(&backup_path).exists() {
         fs::remove_file(&backup_path)
             .map_err(|e| format!("Failed to delete backup file: {}", e))?;
     }
 
-    // Update metadata
     let backup_dir = get_backup_dir(&video_path);
     let meta_path = backup_dir.join("backups.json");
 
@@ -1586,10 +1619,8 @@ async fn embed_subtitle(
 
     let temp_output = parent.join(format!("{}_with_subs.{}", stem, ext));
 
-    // Ensure text-based subtitles are UTF-8 before embedding to avoid muxing issues in players
     let (utf8_subtitle_path, temp_utf8_path) = convert_subtitle_to_utf8(&subtitle_path)?;
 
-    // If requested, use mkvmerge instead of ffmpeg for embedding (may improve player compatibility)
     if use_mkvmerge && mkvmerge_path.is_none() {
         eprintln!("mkvmerge not available, falling back to ffmpeg for embedding");
         use_mkvmerge = false;
@@ -1667,11 +1698,9 @@ async fn embed_subtitle(
         "copy".to_string(),
     ];
 
-    // Get number of existing subtitle streams to determine new track index
     let video_info = get_video_info(video_path.clone(), Some(ffmpeg.clone())).await?;
     let new_track_idx = video_info.subtitle_tracks.len();
 
-    // Ensure the new subtitle stream is muxed with the proper codec
     args.push(format!("-c:s:{}", new_track_idx));
     args.push(sub_codec.to_string());
 
@@ -1697,7 +1726,6 @@ async fn embed_subtitle(
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
 
-    // Clean up temp UTF-8 subtitle copy if created
     if let Some(temp_path) = &temp_utf8_path {
         let _ = fs::remove_file(temp_path);
     }
@@ -1749,7 +1777,6 @@ async fn remove_subtitle_track(
 
     let temp_output = parent.join(format!("{}_modified.{}", stem, ext));
 
-    // Build mapping to exclude the specified track
     let mut args = vec![
         "-i".to_string(),
         video_path.clone(),
