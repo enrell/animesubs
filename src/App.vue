@@ -279,7 +279,7 @@
 
                     <n-collapse>
                       <n-collapse-item title="Advanced Options" name="advanced">
-                        <n-grid :cols="2" :x-gap="24" :y-gap="16">
+                        <n-grid :cols="3" :x-gap="24" :y-gap="16">
                           <n-gi>
                             <n-form-item label="Batch Size">
                               <n-input-number
@@ -291,7 +291,17 @@
                             </n-form-item>
                           </n-gi>
                           <n-gi>
-                            <n-form-item label="Delay Between Requests (ms)">
+                            <n-form-item label="Concurrency">
+                              <n-input-number
+                                v-model:value="translationOptions.concurrency"
+                                :min="1"
+                                :max="10"
+                                placeholder="Parallel requests"
+                              />
+                            </n-form-item>
+                          </n-gi>
+                          <n-gi>
+                            <n-form-item label="Delay (ms)">
                               <n-input-number
                                 v-model:value="translationOptions.requestDelay"
                                 :min="0"
@@ -596,7 +606,21 @@ onMounted(async () => {
       if (paths.length > 0) {
         loadingFiles.value = true
         try {
-          await addFiles(paths)
+          // Process paths - scan folders for video files
+          const allVideoPaths: string[] = []
+          for (const path of paths) {
+            try {
+              // Check if path is a directory by attempting to scan it
+              const videos = await invoke<string[]>('scan_folder_for_videos', {
+                folderPath: path
+              })
+              allVideoPaths.push(...videos)
+            } catch {
+              // Not a folder or scan failed, treat as file
+              allVideoPaths.push(path)
+            }
+          }
+          await addFiles(allVideoPaths)
         } finally {
           loadingFiles.value = false
         }
@@ -762,6 +786,10 @@ const removeFile = (index: number) => {
 const clearFiles = () => {
   selectedFiles.value = []
   subtitleTrackOptions.value = [{ label: 'Auto-detect (first available)', value: '' }]
+  // Reset translation progress state
+  translationProgress.value = 0
+  currentStatus.value = ''
+  estimatedTime.value = ''
 }
 
 // Translation options
@@ -771,6 +799,7 @@ const translationOptions = reactive({
   embedSubtitles: false,
   useMkvmerge: true,
   batchSize: 100,
+  concurrency: 1,
   requestDelay: 500,
   customPrompt: ''
 })
@@ -1015,6 +1044,59 @@ const getSettings = (): Settings | null => {
   return cachedSettings.value
 }
 
+// Validate API connection before starting translation
+const validateApiConnection = async (settings: Settings): Promise<{ valid: boolean; error?: string }> => {
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+    
+    if (settings.apiKey) {
+      headers['Authorization'] = `Bearer ${settings.apiKey}`
+    }
+
+    // Use models endpoint as a simple connectivity check
+    let url = `${settings.apiEndpoint}/models`
+    
+    if (settings.provider === 'gemini' && !settings.apiEndpoint.includes('/openai')) {
+      url = `https://generativelanguage.googleapis.com/v1beta/models?key=${settings.apiKey}`
+      delete headers['Authorization']
+    }
+
+    const response = await fetch(url, { 
+      headers,
+      signal: AbortSignal.timeout(10000) // 10 second timeout
+    })
+    
+    if (!response.ok) {
+      const text = await response.text()
+      if (response.status === 401) {
+        return { valid: false, error: 'Invalid API key. Please check your credentials in Settings.' }
+      }
+      if (response.status === 403) {
+        return { valid: false, error: 'Access denied. Check API key permissions.' }
+      }
+      if (response.status === 429) {
+        return { valid: false, error: 'Rate limited. Please wait and try again.' }
+      }
+      return { valid: false, error: `API error (${response.status}): ${text.slice(0, 100)}` }
+    }
+    
+    return { valid: true }
+  } catch (e) {
+    if (e instanceof Error) {
+      if (e.name === 'AbortError' || e.name === 'TimeoutError') {
+        return { valid: false, error: 'Connection timeout. Check endpoint URL and network.' }
+      }
+      if (e.message.includes('fetch')) {
+        return { valid: false, error: 'Cannot connect to API. Check endpoint URL.' }
+      }
+      return { valid: false, error: `Connection failed: ${e.message}` }
+    }
+    return { valid: false, error: 'Unknown connection error' }
+  }
+}
+
 const canStartTranslation = computed(() => {
   // Use cachedSettings directly for reactivity
   const settings = cachedSettings.value
@@ -1036,6 +1118,14 @@ const startTranslation = async () => {
   
   const settings = getSettings()
   if (!settings) return
+  
+  // Validate API connection first
+  currentStatus.value = 'Validating API connection...'
+  const validation = await validateApiConnection(settings)
+  if (!validation.valid) {
+    currentStatus.value = validation.error || 'API validation failed'
+    return
+  }
   
   isTranslating.value = true
   setProgress(0)
@@ -1133,7 +1223,9 @@ const startTranslation = async () => {
         config: llmConfig,
         sourceLang: settings.sourceLanguage || 'auto',
         targetLang: settings.targetLanguage,
-        batchSize: translationOptions.batchSize
+        batchSize: translationOptions.batchSize,
+        concurrency: translationOptions.concurrency,
+        requestDelay: translationOptions.requestDelay
       })
       
       if (!translatedData) {
