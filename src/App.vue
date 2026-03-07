@@ -242,7 +242,7 @@
                       <n-gi>
                         <n-form-item label="Target Language">
                           <n-select
-                            v-model:value="translationOptions.targetLanguage"
+                            v-model:value="targetLanguageModel"
                             :options="languageOptions"
                           />
                         </n-form-item>
@@ -427,7 +427,16 @@ import {
 import { open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow, type DragDropEvent } from '@tauri-apps/api/window'
-import SettingsModal, { type Settings } from './components/SettingsModal.vue'
+import SettingsModal from './components/SettingsModal.vue'
+import {
+  defaultSettings,
+  hasUsableApiConfig,
+  providerRequiresApiKey,
+  SETTINGS_STORAGE_KEY,
+  sharedLanguageOptions,
+  TRANSLATION_OPTIONS_STORAGE_KEY,
+  type Settings
+} from './config/settings'
 
 // Types
 interface SubtitleTrack {
@@ -538,12 +547,15 @@ const cachedSettings = ref<Settings | null>(null)
 // Load settings from localStorage
 const loadCachedSettings = () => {
   try {
-    const saved = localStorage.getItem('animesubs-settings')
+    const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (saved) {
-      cachedSettings.value = JSON.parse(saved)
+      cachedSettings.value = { ...defaultSettings, ...JSON.parse(saved) }
+    } else {
+      cachedSettings.value = { ...defaultSettings }
     }
   } catch (e) {
     console.error('Failed to load settings:', e)
+    cachedSettings.value = { ...defaultSettings }
   }
 }
 
@@ -794,7 +806,6 @@ const clearFiles = () => {
 
 // Translation options
 const translationOptions = reactive({
-  targetLanguage: 'en',
   subtitleTrack: '' as string,
   embedSubtitles: false,
   useMkvmerge: true,
@@ -807,7 +818,7 @@ const translationOptions = reactive({
 // Load translation options from localStorage
 const loadTranslationOptions = () => {
   try {
-    const saved = localStorage.getItem('animesubs-translation-options')
+    const saved = localStorage.getItem(TRANSLATION_OPTIONS_STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved)
       Object.assign(translationOptions, parsed)
@@ -820,7 +831,7 @@ const loadTranslationOptions = () => {
 // Save translation options to localStorage
 const saveTranslationOptions = () => {
   try {
-    localStorage.setItem('animesubs-translation-options', JSON.stringify(translationOptions))
+    localStorage.setItem(TRANSLATION_OPTIONS_STORAGE_KEY, JSON.stringify(translationOptions))
   } catch (e) {
     console.error('Failed to save translation options:', e)
   }
@@ -831,20 +842,31 @@ watch(translationOptions, () => {
   saveTranslationOptions()
 }, { deep: true })
 
-const languageOptions = [
-  { label: 'English', value: 'en' },
-  { label: 'Japanese', value: 'ja' },
-  { label: 'Chinese (Simplified)', value: 'zh-CN' },
-  { label: 'Chinese (Traditional)', value: 'zh-TW' },
-  { label: 'Korean', value: 'ko' },
-  { label: 'Spanish', value: 'es' },
-  { label: 'French', value: 'fr' },
-  { label: 'German', value: 'de' },
-  { label: 'Portuguese', value: 'pt' },
-  { label: 'Russian', value: 'ru' },
-  { label: 'Italian', value: 'it' },
-  { label: 'Arabic', value: 'ar' }
-]
+const languageOptions = sharedLanguageOptions.filter(option => option.value)
+
+const updateSettings = (patch: Partial<Settings>) => {
+  const nextSettings = {
+    ...(cachedSettings.value ?? defaultSettings),
+    ...patch
+  }
+
+  cachedSettings.value = nextSettings
+
+  if (settingsRef.value?.settings) {
+    Object.assign(settingsRef.value.settings, patch)
+  }
+
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
+  } catch (e) {
+    console.error('Failed to persist settings:', e)
+  }
+}
+
+const targetLanguageModel = computed({
+  get: () => getSettings()?.targetLanguage || defaultSettings.targetLanguage,
+  set: (value: string) => updateSettings({ targetLanguage: value })
+})
 
 const normalizeLanguageKey = (value?: string | null) => {
   if (!value) return ''
@@ -1098,19 +1120,30 @@ const validateApiConnection = async (settings: Settings): Promise<{ valid: boole
 }
 
 const canStartTranslation = computed(() => {
-  // Use cachedSettings directly for reactivity
   const settings = cachedSettings.value
-  const hasApiConfig = settings?.provider === 'ollama' || (settings?.apiKey && settings?.selectedModel)
+  const hasApiConfig = hasUsableApiConfig(settings)
   const hasFiles = selectedFiles.value.length > 0
   const filesReady = selectedFiles.value.some(f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0)
   return hasApiConfig && hasFiles && filesReady && ffmpegStatus.value?.success
 })
 
+const cleanupGeneratedFile = async (filePath: string | null | undefined) => {
+  if (!filePath) return
+
+  try {
+    await invoke<OperationResult>('delete_file', { filePath })
+  } catch (e) {
+    console.warn(`Failed to clean up temporary file ${filePath}:`, e)
+  }
+}
+
 const startTranslation = async () => {
   if (!canStartTranslation.value) {
     if (!ffmpegStatus.value?.success) {
       showSettings.value = true
-    } else if (!getSettings()?.apiKey) {
+    } else if (providerRequiresApiKey(getSettings()?.provider) && !getSettings()?.apiKey) {
+      showSettings.value = true
+    } else if (!getSettings()?.selectedModel) {
       showSettings.value = true
     }
     return
@@ -1134,173 +1167,220 @@ const startTranslation = async () => {
   const filesToProcess = selectedFiles.value.filter(
     f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0
   )
+
+  const failures: string[] = []
+  let completedFiles = 0
+
+  const recordFailure = (fileName: string, reason: string) => {
+    const message = `${fileName}: ${reason}`
+    failures.push(message)
+    console.error(message)
+    currentStatus.value = `Error in ${fileName}: ${reason}`
+  }
   
   try {
     for (let i = 0; i < filesToProcess.length; i++) {
       const file = filesToProcess[i]
       currentFileIndex.value = i
       currentStatus.value = `Processing ${file.name} (${i + 1}/${filesToProcess.length})`
+      const useTemporaryFiles = translationOptions.embedSubtitles
+      let extractedPath: string | null = null
+      let translatedSubtitlePath: string | null = null
       
-      // Select track - use the one from options or find first suitable
-      const trackIndex = translationOptions.subtitleTrack 
-        ? parseInt(translationOptions.subtitleTrack) 
-        : 0
-      
-      const track = file.videoInfo!.subtitle_tracks[trackIndex]
-      if (!track) {
-        console.error(`Track ${trackIndex} not found in ${file.name}`)
-        continue
-      }
-      
-      // Extract subtitle to temp file
-      currentStatus.value = `Extracting subtitles from ${file.name}...`
-      setProgress(((i / filesToProcess.length) * 100) + (5 / filesToProcess.length))
-      
-      // Determine format based on settings or codec
-      let format = settings.outputFormat || 'srt'
-      
-      // If output format is not specified or is 'ass', try to keep original format if it's ASS
-      if ((!settings.outputFormat || settings.outputFormat === 'ass') && (track.codec.includes('ass') || track.codec.includes('ssa'))) {
-        format = 'ass'
-      } else if (settings.outputFormat === 'srt') {
-        format = 'srt'
-      } else if (settings.outputFormat === 'vtt') {
-        format = 'vtt'
-      } else {
-        // Fallback logic
-        format = track.codec.includes('ass') || track.codec.includes('ssa') ? 'ass' : 
-                 track.codec.includes('subrip') || track.codec.includes('srt') ? 'srt' : 
-                 track.codec.includes('webvtt') ? 'vtt' : 'srt'
-      }
-      
-      const extractResult = await invoke<{ success: boolean; output_path: string | null; error: string | null }>('extract_subtitle', {
-        videoPath: file.path,
-        trackIndex,
-        outputPath: null,
-        format,
-        ffmpegPath: settings?.ffmpegPath || null
-      })
-      
-      if (!extractResult.success || !extractResult.output_path) {
-        console.error(`Failed to extract subtitle from ${file.name}:`, extractResult.error)
-        continue
-      }
-      
-      const extractedPath = extractResult.output_path
-      
-      // Parse the extracted subtitle file
-      currentStatus.value = `Parsing subtitles from ${file.name}...`
-      setProgress(((i / filesToProcess.length) * 100) + (10 / filesToProcess.length))
-      
-      const subtitleData = await invoke<SubtitleData>('parse_subtitle_file', {
-        filePath: extractedPath
-      })
-      
-      if (!subtitleData || subtitleData.lines.length === 0) {
-        console.error(`No dialog found in ${file.name}`)
-        continue
-      }
-      
-      // Get system prompt from settings modal
-      const systemPrompt = settingsRef.value?.getSystemPrompt?.() || 
-        `You are a professional subtitle translator. Translate the following subtitle lines to ${settings.targetLanguage}. Keep translations natural and contextually appropriate for anime dialogue.`
-      
-      // Build LLM config
-      const llmConfig = {
-        provider: settings.provider,
-        api_key: settings.apiKey,
-        endpoint: settings.apiEndpoint,
-        model: settings.selectedModel || '',
-        system_prompt: systemPrompt
-      }
-      
-      // Translate subtitles
-      currentStatus.value = `Translating ${file.name} (${subtitleData.lines.length} lines)...`
-      setProgress(((i / filesToProcess.length) * 100) + (20 / filesToProcess.length))
-      
-      const translatedData = await invoke<SubtitleData>('translate_subtitles', {
-        subtitleData,
-        config: llmConfig,
-        sourceLang: settings.sourceLanguage || 'auto',
-        targetLang: settings.targetLanguage,
-        batchSize: translationOptions.batchSize,
-        concurrency: translationOptions.concurrency,
-        requestDelay: translationOptions.requestDelay
-      })
-      
-      if (!translatedData) {
-        console.error(`Translation failed for ${file.name}`)
-        continue
-      }
-      
-      // Generate output path
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
-      const baseName = file.path.replace(/\.[^.]+$/, '')
-      const targetLangValue = settings.targetLanguage || track.language || 'und'
-      const filenameLangCode = sanitizeLangCodeForFilename(targetLangValue)
-      const ffmpegLangCode = toFfmpegLangCode(targetLangValue)
-      const outputPath = `${baseName}_${filenameLangCode}_${timestamp}_track${trackIndex}.${format}`
-      
-      // Save translated subtitles
-      currentStatus.value = `Saving translated subtitles for ${file.name}...`
-      setProgress(((i / filesToProcess.length) * 100) + (80 / filesToProcess.length))
-      
-      const saveResult = await invoke<OperationResult>('save_translated_subtitles', {
-        translatedData,
-        outputPath,
-        originalFilePath: extractedPath
-      })
-      
-      if (!saveResult.success) {
-        console.error(`Failed to save translated subtitles for ${file.name}:`, saveResult.message)
-        continue
-      }
-      
-      // Embed subtitles if enabled
-      if (translationOptions.embedSubtitles) {
-        currentStatus.value = `Embedding translated subtitles in ${file.name}...`
-        setProgress(((i / filesToProcess.length) * 100) + (90 / filesToProcess.length))
+      try {
+        // Select track - use the one from options or find first suitable
+        const trackIndex = translationOptions.subtitleTrack 
+          ? parseInt(translationOptions.subtitleTrack) 
+          : 0
         
-        // Refresh video info to check for existing translated tracks
-        const currentInfo = await invoke<VideoInfo>('get_video_info', {
+        const track = file.videoInfo!.subtitle_tracks[trackIndex]
+        if (!track) {
+          recordFailure(file.name, `Track ${trackIndex} not found`)
+          continue
+        }
+        
+        // Extract subtitle to temp file
+        currentStatus.value = `Extracting subtitles from ${file.name}...`
+        setProgress(((i / filesToProcess.length) * 100) + (5 / filesToProcess.length))
+        
+        // Determine format based on settings or codec
+        let format = settings.outputFormat || 'srt'
+        
+        // If output format is not specified or is 'ass', try to keep original format if it's ASS
+        if ((!settings.outputFormat || settings.outputFormat === 'ass') && (track.codec.includes('ass') || track.codec.includes('ssa'))) {
+          format = 'ass'
+        } else if (settings.outputFormat === 'srt') {
+          format = 'srt'
+        } else if (settings.outputFormat === 'vtt') {
+          format = 'vtt'
+        } else {
+          // Fallback logic
+          format = track.codec.includes('ass') || track.codec.includes('ssa') ? 'ass' : 
+                   track.codec.includes('subrip') || track.codec.includes('srt') ? 'srt' : 
+                   track.codec.includes('webvtt') ? 'vtt' : 'srt'
+        }
+        
+        const extractResult = await invoke<{ success: boolean; output_path: string | null; error: string | null }>('extract_subtitle', {
           videoPath: file.path,
+          trackIndex,
+          outputPath: null,
+          format,
+          temporary: useTemporaryFiles,
           ffmpegPath: settings?.ffmpegPath || null
         })
         
-        // Remove existing translated tracks to prevent duplicates
-        const translatedTitle = `Translated (${filenameLangCode})`
-        const tracksToRemove = currentInfo.subtitle_tracks
-          .filter(t => {
-            if (t.title === translatedTitle || t.title?.startsWith('Translated (')) return true
-            const trackLangIso = toFfmpegLangCode(t.language)
-            return trackLangIso === ffmpegLangCode && t.index !== trackIndex
-          })
-          .sort((a, b) => b.index - a.index) // Remove from end to start
-          
-        for (const t of tracksToRemove) {
-          currentStatus.value = `Removing existing translated track ${t.index} from ${file.name}...`
-          await invoke('remove_subtitle_track', {
-            videoPath: file.path,
-            trackIndex: t.index,
-            ffmpegPath: settings?.ffmpegPath || null
-          })
+        if (!extractResult.success || !extractResult.output_path) {
+          recordFailure(file.name, extractResult.error || 'Failed to extract subtitle track')
+          continue
         }
         
-        await invoke<OperationResult>('embed_subtitle', {
-          videoPath: file.path,
-          subtitlePath: outputPath,
-          language: ffmpegLangCode,
-          title: translatedTitle,
-          setDefault: true,
-          ffmpegPath: settings?.ffmpegPath || null,
-          useMkvmerge: translationOptions.useMkvmerge
+        extractedPath = extractResult.output_path
+        
+        // Parse the extracted subtitle file
+        currentStatus.value = `Parsing subtitles from ${file.name}...`
+        setProgress(((i / filesToProcess.length) * 100) + (10 / filesToProcess.length))
+        
+        const subtitleData = await invoke<SubtitleData>('parse_subtitle_file', {
+          filePath: extractedPath
         })
+        
+        if (!subtitleData || subtitleData.lines.length === 0) {
+          recordFailure(file.name, 'No dialog lines found in extracted subtitle')
+          continue
+        }
+        
+        // Get system prompt from settings modal
+        const systemPrompt = settingsRef.value?.getSystemPrompt?.() || 
+          `You are a professional subtitle translator. Translate the following subtitle lines to ${settings.targetLanguage}. Keep translations natural and contextually appropriate for anime dialogue.`
+        
+        // Build LLM config
+        const llmConfig = {
+          provider: settings.provider,
+          api_key: settings.apiKey,
+          endpoint: settings.apiEndpoint,
+          model: settings.selectedModel || '',
+          system_prompt: systemPrompt
+        }
+        
+        // Translate subtitles
+        currentStatus.value = `Translating ${file.name} (${subtitleData.lines.length} lines)...`
+        setProgress(((i / filesToProcess.length) * 100) + (20 / filesToProcess.length))
+        
+        const translatedData = await invoke<SubtitleData>('translate_subtitles', {
+          subtitleData,
+          config: llmConfig,
+          sourceLang: settings.sourceLanguage || 'auto',
+          targetLang: settings.targetLanguage,
+          batchSize: translationOptions.batchSize,
+          concurrency: translationOptions.concurrency,
+          requestDelay: translationOptions.requestDelay
+        })
+        
+        if (!translatedData) {
+          recordFailure(file.name, 'Translation returned no data')
+          continue
+        }
+        
+        // Generate output path only when the user wants to keep the subtitle file
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
+        const baseName = file.path.replace(/\.[^.]+$/, '')
+        const targetLangValue = settings.targetLanguage || track.language || 'und'
+        const filenameLangCode = sanitizeLangCodeForFilename(targetLangValue)
+        const ffmpegLangCode = toFfmpegLangCode(targetLangValue)
+        const persistentOutputPath = `${baseName}_${filenameLangCode}_${timestamp}_track${trackIndex}.${format}`
+        
+        // Save translated subtitles
+        currentStatus.value = `Saving translated subtitles for ${file.name}...`
+        setProgress(((i / filesToProcess.length) * 100) + (80 / filesToProcess.length))
+        
+        const saveResult = await invoke<OperationResult>('save_translated_subtitles', {
+          translatedData,
+          outputPath: useTemporaryFiles ? null : persistentOutputPath,
+          originalFilePath: extractedPath,
+          temporary: useTemporaryFiles
+        })
+        
+        if (!saveResult.success || !saveResult.data) {
+          recordFailure(file.name, saveResult.message || 'Failed to save translated subtitles')
+          continue
+        }
+
+        translatedSubtitlePath = saveResult.data
+        
+        // Embed subtitles if enabled
+        if (translationOptions.embedSubtitles) {
+          currentStatus.value = `Embedding translated subtitles in ${file.name}...`
+          setProgress(((i / filesToProcess.length) * 100) + (90 / filesToProcess.length))
+          
+          // Refresh video info to check for existing translated tracks
+          const currentInfo = await invoke<VideoInfo>('get_video_info', {
+            videoPath: file.path,
+            ffmpegPath: settings?.ffmpegPath || null
+          })
+          
+          // Remove existing translated tracks to prevent duplicates
+          const translatedTitle = `Translated (${filenameLangCode})`
+          const tracksToRemove = currentInfo.subtitle_tracks
+            .filter(t => {
+              if (t.title === translatedTitle || t.title?.startsWith('Translated (')) return true
+              const trackLangIso = toFfmpegLangCode(t.language)
+              return trackLangIso === ffmpegLangCode && t.index !== trackIndex
+            })
+            .sort((a, b) => b.index - a.index) // Remove from end to start
+
+          let removeFailed = false
+          for (const t of tracksToRemove) {
+            currentStatus.value = `Removing existing translated track ${t.index} from ${file.name}...`
+            const removeResult = await invoke<OperationResult>('remove_subtitle_track', {
+              videoPath: file.path,
+              trackIndex: t.index,
+              ffmpegPath: settings?.ffmpegPath || null
+            })
+
+            if (!removeResult.success) {
+              recordFailure(file.name, removeResult.message || `Failed to remove existing subtitle track ${t.index}`)
+              removeFailed = true
+              break
+            }
+          }
+
+          if (removeFailed) {
+            continue
+          }
+          
+          const embedResult = await invoke<OperationResult>('embed_subtitle', {
+            videoPath: file.path,
+            subtitlePath: translatedSubtitlePath,
+            language: ffmpegLangCode,
+            title: translatedTitle,
+            setDefault: true,
+            ffmpegPath: settings?.ffmpegPath || null,
+            useMkvmerge: translationOptions.useMkvmerge
+          })
+
+          if (!embedResult.success) {
+            recordFailure(file.name, embedResult.message || 'Failed to embed translated subtitles')
+            continue
+          }
+        }
+        
+        completedFiles += 1
+        setProgress((((i + 1) / filesToProcess.length) * 100))
+      } finally {
+        if (useTemporaryFiles) {
+          await cleanupGeneratedFile(extractedPath)
+          await cleanupGeneratedFile(translatedSubtitlePath)
+        }
       }
-      
-      setProgress((((i + 1) / filesToProcess.length) * 100))
     }
-    
-    currentStatus.value = 'Translation complete!'
+
+    if (failures.length === 0) {
+      currentStatus.value = 'Translation complete!'
+    } else if (completedFiles === 0) {
+      currentStatus.value = `Translation failed: ${failures[0]}`
+    } else {
+      currentStatus.value = `Translation finished with errors (${completedFiles}/${filesToProcess.length}): ${failures[0]}`
+    }
   } catch (e) {
     console.error('Translation error:', e)
     currentStatus.value = `Error: ${e}`
