@@ -224,22 +224,13 @@ import {
   SaveOutline
 } from '@vicons/ionicons5'
 import { open } from '@tauri-apps/plugin-dialog'
-
-export interface Settings {
-  provider: string
-  apiEndpoint: string
-  apiKey: string
-  selectedModel: string | null
-  sourceLanguage: string
-  targetLanguage: string
-  translationStyle: string
-  contextLines: number
-  outputDirectory: string
-  outputFormat: string
-  ffmpegPath: string
-  autoBackup: boolean
-  keepOriginalTrack: boolean
-}
+import {
+  defaultSettings,
+  providerRequiresApiKey,
+  SETTINGS_STORAGE_KEY,
+  sharedLanguageOptions,
+  type Settings
+} from '../config/settings'
 
 const props = defineProps<{
   show: boolean
@@ -259,21 +250,7 @@ const showModal = computed({
 const loadingModels = ref(false)
 const modelOptions = ref<{ label: string; value: string }[]>([])
 
-const settings = reactive<Settings>({
-  provider: 'openai',
-  apiEndpoint: 'https://api.openai.com/v1',
-  apiKey: '',
-  selectedModel: null,
-  sourceLanguage: '',
-  targetLanguage: 'en',
-  translationStyle: 'natural',
-  contextLines: 2,
-  outputDirectory: '',
-  outputFormat: 'srt',
-  ffmpegPath: '',
-  autoBackup: true,
-  keepOriginalTrack: true
-})
+const settings = reactive<Settings>({ ...defaultSettings })
 
 const providerOptions = [
   { label: 'OpenAI', value: 'openai' },
@@ -311,26 +288,7 @@ const providerPresets: Record<string, { endpoint: string; models: string[] }> = 
   }
 }
 
-const languageOptions = [
-  { label: 'Auto-detect', value: '' },
-  { label: 'Japanese', value: 'ja' },
-  { label: 'English', value: 'en' },
-  { label: 'Chinese (Simplified)', value: 'zh-CN' },
-  { label: 'Chinese (Traditional)', value: 'zh-TW' },
-  { label: 'Korean', value: 'ko' },
-  { label: 'Spanish', value: 'es' },
-  { label: 'French', value: 'fr' },
-  { label: 'German', value: 'de' },
-  { label: 'Portuguese', value: 'pt' },
-  { label: 'Russian', value: 'ru' },
-  { label: 'Italian', value: 'it' },
-  { label: 'Arabic', value: 'ar' },
-  { label: 'Thai', value: 'th' },
-  { label: 'Vietnamese', value: 'vi' },
-  { label: 'Indonesian', value: 'id' },
-  { label: 'Polish', value: 'pl' },
-  { label: 'Turkish', value: 'tr' }
-]
+const languageOptions = sharedLanguageOptions
 
 const styleOptions = [
   { label: 'Natural & Fluent', value: 'natural' },
@@ -462,11 +420,11 @@ const setPreset = (provider: string) => {
 
 // Load settings from localStorage on mount
 const loadSettings = () => {
-  const saved = localStorage.getItem('animesubs-settings')
+  const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
   if (saved) {
     try {
       const parsed = JSON.parse(saved)
-      Object.assign(settings, parsed)
+      Object.assign(settings, defaultSettings, parsed)
       // Load cached models for provider
       const cachedModels = localStorage.getItem(`animesubs-models-${settings.provider}`)
       if (cachedModels) {
@@ -486,7 +444,7 @@ const fetchModels = async () => {
     return
   }
 
-  if (settings.provider !== 'ollama' && !settings.apiKey) {
+  if (providerRequiresApiKey(settings.provider) && !settings.apiKey) {
     message.warning('Please enter API key first')
     return
   }
@@ -586,27 +544,13 @@ const selectFfmpegPath = async () => {
 }
 
 const saveSettings = () => {
-  localStorage.setItem('animesubs-settings', JSON.stringify(settings))
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
   message.success('Settings saved')
   showModal.value = false
 }
 
 const resetSettings = () => {
-  Object.assign(settings, {
-    provider: 'openai',
-    apiEndpoint: 'https://api.openai.com/v1',
-    apiKey: '',
-    selectedModel: null,
-    sourceLanguage: '',
-    targetLanguage: 'en',
-    translationStyle: 'natural',
-    contextLines: 2,
-    outputDirectory: '',
-    outputFormat: 'srt',
-    ffmpegPath: '',
-    autoBackup: true,
-    keepOriginalTrack: true
-  })
+  Object.assign(settings, defaultSettings)
   modelOptions.value = []
   message.info('Settings reset to defaults')
 }

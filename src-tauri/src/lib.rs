@@ -5,12 +5,19 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // ============================================================================
 // Data Structures
@@ -170,6 +177,51 @@ fn find_executable_in_path(names: &[&str]) -> Option<PathBuf> {
     None
 }
 
+fn create_command(program: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+fn build_temp_subtitle_path(source_path: &str, label: &str, extension: &str) -> Result<PathBuf, String> {
+    let temp_dir = env::temp_dir().join("animesubs");
+    fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temporary directory: {}", e))?;
+
+    let stem = Path::new(source_path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "subtitle".to_string());
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+    Ok(temp_dir.join(format!("{}_{}_{}.{}", stem, label, timestamp, extension)))
+}
+
+fn is_mkv_container(extension: &str) -> bool {
+    matches!(extension, "mkv")
+}
+
+fn resolve_ffmpeg_subtitle_codec(container_ext: &str, subtitle_ext: &str) -> Result<&'static str, String> {
+    match container_ext {
+        "mkv" => Ok(match subtitle_ext {
+            "ass" | "ssa" => "ass",
+            "srt" | "subrip" => "srt",
+            "vtt" | "webvtt" => "webvtt",
+            _ => "srt",
+        }),
+        "mp4" | "m4v" | "mov" => Ok("mov_text"),
+        "webm" => Ok("webvtt"),
+        _ => Err(format!(
+            "Embedding subtitles into .{} with ffmpeg is not supported reliably. Use MKV/mkvmerge or disable embed for this file.",
+            container_ext
+        )),
+    }
+}
+
 // ============================================================================
 // FFmpeg Path Resolution
 // ============================================================================
@@ -278,7 +330,7 @@ async fn get_video_info(
 ) -> Result<VideoInfo, String> {
     let ffprobe = get_ffprobe_path(ffmpeg_path);
 
-    let output = Command::new(&ffprobe)
+    let output = create_command(&ffprobe)
         .args([
             "-v",
             "quiet",
@@ -379,6 +431,7 @@ async fn extract_subtitle(
     track_index: u32,
     output_path: Option<String>,
     format: Option<String>,
+    temporary: Option<bool>,
     ffmpeg_path: Option<String>,
 ) -> Result<ExtractResult, String> {
     let ffmpeg = get_ffmpeg_path(ffmpeg_path.clone());
@@ -395,6 +448,8 @@ async fn extract_subtitle(
 
     let output = if let Some(out) = output_path {
         PathBuf::from(out)
+    } else if temporary.unwrap_or(false) {
+        build_temp_subtitle_path(&video_path, &format!("extract_track{}", track_index), &fmt)?
     } else {
         let video_pathbuf = Path::new(&video_path);
         let stem = video_pathbuf
@@ -406,7 +461,7 @@ async fn extract_subtitle(
         parent.join(format!("{}.{}.{}", stem, lang, fmt))
     };
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args([
             "-i",
             &video_path,
@@ -958,10 +1013,12 @@ async fn call_llm_api(
     // Detect if Gemini is using OpenAI-compatible endpoint
     let is_gemini_openai_compat =
         config.provider == "gemini" && config.endpoint.contains("/openai");
+    let is_openai_compatible = matches!(config.provider.as_str(), "openai" | "openrouter" | "custom")
+        || is_gemini_openai_compat;
 
     // Build request based on provider
     let request_body = match config.provider.as_str() {
-        "openai" | "openrouter" | _ if is_gemini_openai_compat => {
+        "openai" | "openrouter" | "custom" | _ if is_gemini_openai_compat => {
             serde_json::json!({
                 "model": config.model,
                 "messages": [
@@ -1010,7 +1067,7 @@ async fn call_llm_api(
     } else if config.provider == "gemini" {
         // Native Gemini endpoint uses API key as query param
         format!("{}:generateContent?key={}", config.endpoint, config.api_key)
-    } else {
+    } else if is_openai_compatible {
         // For OpenAI-compatible endpoints, append /chat/completions if needed
         let base = config.endpoint.trim_end_matches('/');
         if base.ends_with("/chat/completions") {
@@ -1018,6 +1075,8 @@ async fn call_llm_api(
         } else {
             format!("{}/chat/completions", base)
         }
+    } else {
+        return Err(format!("Unsupported provider: {}", config.provider));
     };
 
     let mut request = client.post(&endpoint_url).json(&request_body);
@@ -1028,8 +1087,10 @@ async fn call_llm_api(
         request = request.header("Authorization", format!("Bearer {}", config.api_key));
     } else {
         match config.provider.as_str() {
-            "openai" | "openrouter" => {
-                request = request.header("Authorization", format!("Bearer {}", config.api_key));
+            "openai" | "openrouter" | "custom" => {
+                if !config.api_key.is_empty() {
+                    request = request.header("Authorization", format!("Bearer {}", config.api_key));
+                }
                 if config.provider == "openrouter" {
                     request = request.header("HTTP-Referer", "https://animesubs.app");
                 }
@@ -1063,10 +1124,7 @@ async fn call_llm_api(
         .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
 
     // Extract content based on provider format
-    let content = if is_gemini_openai_compat
-        || config.provider == "openai"
-        || config.provider == "openrouter"
-    {
+    let content = if is_openai_compatible {
         response_json["choices"][0]["message"]["content"]
             .as_str()
             .ok_or("Missing content in OpenAI response")?
@@ -1241,12 +1299,23 @@ async fn translate_subtitles(
         }
     }
 
-    // Apply translations
+    // Apply translations and reject silent no-op results that would be reported as success.
     let map = translation_map.lock().await;
+    let mut changed_lines = 0usize;
     for line in &mut translated_lines {
         if let Some(translated_text) = map.get(&line.index) {
+            if translated_text.trim() != line.text.trim() {
+                changed_lines += 1;
+            }
             line.text = translated_text.clone();
         }
+    }
+
+    if changed_lines == 0 {
+        return Err(
+            "Translation produced no subtitle changes. Check the provider, model, prompt, and selected languages."
+                .to_string(),
+        );
     }
 
     Ok(SubtitleData {
@@ -1418,13 +1487,26 @@ fn reconstruct_vtt(translations: &[DialogLine]) -> String {
 #[tauri::command]
 async fn save_translated_subtitles(
     translated_data: SubtitleData,
-    output_path: String,
+    output_path: Option<String>,
     original_file_path: Option<String>,
+    temporary: Option<bool>,
 ) -> Result<OperationResult, String> {
+    let has_translated_changes = translated_data
+        .lines
+        .iter()
+        .any(|line| line.text.trim() != strip_ass_tags(&line.original_with_formatting).trim());
+
+    if !has_translated_changes {
+        return Err(
+            "Refusing to save translated subtitles because no translated lines differ from the source."
+                .to_string(),
+        );
+    }
+
     let content = match translated_data.format.as_str() {
         "ass" | "ssa" => {
-            if let Some(original_path) = original_file_path {
-                let original_content = read_file_as_utf8(&original_path)?;
+            if let Some(ref original_path) = original_file_path {
+                let original_content = read_file_as_utf8(original_path)?;
                 reconstruct_ass(&original_content, &translated_data.lines)
             } else if let Some(header) = &translated_data.ass_header {
                 let mut result = header.clone();
@@ -1449,12 +1531,26 @@ async fn save_translated_subtitles(
         _ => return Err(format!("Unsupported format: {}", translated_data.format)),
     };
 
-    write_utf8_file(&output_path, &content, true)?;
+    let resolved_output_path = if let Some(path) = output_path {
+        path
+    } else if temporary.unwrap_or(false) {
+        let source_path = original_file_path
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or(&translated_data.source_path);
+        build_temp_subtitle_path(source_path, "translated", &translated_data.format)?
+            .to_string_lossy()
+            .to_string()
+    } else {
+        return Err("output_path is required when temporary save is disabled".to_string());
+    };
+
+    write_utf8_file(&resolved_output_path, &content, true)?;
 
     Ok(OperationResult {
         success: true,
-        message: format!("Saved translated subtitles to {}", output_path),
-        data: Some(output_path),
+        message: format!("Saved translated subtitles to {}", resolved_output_path),
+        data: Some(resolved_output_path),
     })
 }
 
@@ -1508,6 +1604,7 @@ async fn backup_subtitle(
         track_index,
         Some(backup_path.to_string_lossy().to_string()),
         Some(format.to_string()),
+        Some(false),
         ffmpeg_path,
     )
     .await?;
@@ -1594,12 +1691,12 @@ async fn restore_subtitle(
         .unwrap_or_else(|| "video".to_string());
     let ext = video_pathbuf
         .extension()
-        .map(|s| s.to_string_lossy().to_string())
+        .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_else(|| "mkv".to_string());
 
     let temp_output = parent.join(format!("{}_restored.{}", stem, ext));
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args([
             "-i",
             &video_path,
@@ -1704,6 +1801,11 @@ async fn embed_subtitle(
 
     let (utf8_subtitle_path, temp_utf8_path) = convert_subtitle_to_utf8(&subtitle_path)?;
 
+    if use_mkvmerge && !is_mkv_container(&ext) {
+        eprintln!("mkvmerge only supports MKV output here, falling back to ffmpeg for embedding into {}", ext);
+        use_mkvmerge = false;
+    }
+
     if use_mkvmerge && mkvmerge_path.is_none() {
         eprintln!("mkvmerge not available, falling back to ffmpeg for embedding");
         use_mkvmerge = false;
@@ -1729,7 +1831,7 @@ async fn embed_subtitle(
 
         let mkvmerge_bin = mkvmerge_path.unwrap_or_else(|| "mkvmerge".to_string());
 
-        let result = Command::new(&mkvmerge_bin)
+        let result = create_command(&mkvmerge_bin)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to run mkvmerge: {}", e))?;
@@ -1761,12 +1863,7 @@ async fn embed_subtitle(
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
-    let sub_codec = match sub_ext.as_str() {
-        "ass" | "ssa" => "ass",
-        "srt" | "subrip" => "srt",
-        "vtt" | "webvtt" => "webvtt",
-        _ => "copy",
-    };
+    let sub_codec = resolve_ffmpeg_subtitle_codec(&ext, &sub_ext)?;
 
     let mut args = vec![
         "-i".to_string(),
@@ -1804,7 +1901,7 @@ async fn embed_subtitle(
     args.push("-y".to_string());
     args.push(temp_output.to_string_lossy().to_string());
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
@@ -1883,7 +1980,7 @@ async fn remove_subtitle_track(
         temp_output.to_string_lossy().to_string(),
     ]);
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
@@ -1916,7 +2013,7 @@ async fn remove_subtitle_track(
 async fn check_ffmpeg(ffmpeg_path: Option<String>) -> Result<OperationResult, String> {
     let ffmpeg = get_ffmpeg_path(ffmpeg_path);
 
-    let result = Command::new(&ffmpeg).arg("-version").output();
+    let result = create_command(&ffmpeg).arg("-version").output();
 
     match result {
         Ok(output) if output.status.success() => {
@@ -1935,6 +2032,27 @@ async fn check_ffmpeg(ffmpeg_path: Option<String>) -> Result<OperationResult, St
             data: None,
         }),
     }
+}
+
+#[tauri::command]
+async fn delete_file(file_path: String) -> Result<OperationResult, String> {
+    let path = Path::new(&file_path);
+
+    if !path.exists() {
+        return Ok(OperationResult {
+            success: true,
+            message: "File already removed".to_string(),
+            data: Some(file_path),
+        });
+    }
+
+    fs::remove_file(path).map_err(|e| format!("Failed to delete file: {}", e))?;
+
+    Ok(OperationResult {
+        success: true,
+        message: "File deleted successfully".to_string(),
+        data: Some(file_path),
+    })
 }
 
 #[tauri::command]
@@ -1964,6 +2082,7 @@ pub fn run() {
             embed_subtitle,
             remove_subtitle_track,
             check_ffmpeg,
+            delete_file,
             // Translation pipeline
             parse_subtitle_file,
             translate_subtitles,
