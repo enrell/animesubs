@@ -73,6 +73,7 @@
                   <n-button size="small" @click="setPreset('ollama')">Ollama</n-button>
                   <n-button size="small" @click="setPreset('lmstudio')">LM Studio</n-button>
                   <n-button size="small" @click="setPreset('openrouter')">OpenRouter</n-button>
+          <n-button size="small" @click="setPreset('nvidia')">NVIDIA NIM</n-button>
                 </n-space>
               </n-space>
             </n-collapse-item>
@@ -258,6 +259,8 @@ const providerOptions = [
   { label: 'Ollama (Local)', value: 'ollama' },
   { label: 'LM Studio (Local)', value: 'lmstudio' },
   { label: 'OpenRouter', value: 'openrouter' },
+  { label: 'NVIDIA NIM', value: 'nvidia' },
+  { label: 'MiniMax (Token Plan)', value: 'minimax' },
   { label: 'Custom OpenAI-compatible', value: 'custom' }
 ]
 
@@ -281,6 +284,14 @@ const providerPresets: Record<string, { endpoint: string; models: string[] }> = 
   openrouter: {
     endpoint: 'https://openrouter.ai/api/v1',
     models: ['anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'google/gemini-pro-1.5', 'meta-llama/llama-3.1-70b-instruct']
+  },
+  nvidia: {
+    endpoint: 'https://integrate.api.nvidia.com/v1',
+    models: ['google/gemma-4-31b-it', 'minimaxai/minimax-m2.7', 'moonshotai/kimi-k2.5', 'moonshotai/kimi-k2-thinking', 'nvidia/llama-3.1-nemotron-70b-instruct']
+  },
+  minimax: {
+    endpoint: 'https://api.minimax.io/v1',
+    models: ['MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M1']
   },
   custom: {
     endpoint: '',
@@ -396,6 +407,8 @@ const getApiKeyPlaceholder = (): string => {
     openai: 'sk-...',
     gemini: 'AIza...',
     openrouter: 'sk-or-...',
+    nvidia: 'nvapi-...',
+    minimax: 'Bearer token from MiniMax Token Plan',
     lmstudio: '(optional)',
     custom: 'API key'
   }
