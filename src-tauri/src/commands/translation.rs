@@ -26,7 +26,7 @@ async fn call_llm_api(
         config.provider == "gemini" && config.endpoint.contains("/openai");
 
     let request_body = match config.provider.as_str() {
-        "openai" | "openrouter" | _ if is_gemini_openai_compat => {
+        "openai" | "openrouter" | "minimax" | _ if is_gemini_openai_compat => {
             serde_json::json!({
                 "model": config.model,
                 "messages": [
@@ -87,7 +87,7 @@ async fn call_llm_api(
         request = request.header("Authorization", format!("Bearer {}", config.api_key));
     } else {
         match config.provider.as_str() {
-            "openai" | "openrouter" => {
+            "openai" | "openrouter" | "minimax" => {
                 request = request.header("Authorization", format!("Bearer {}", config.api_key));
                 if config.provider == "openrouter" {
                     request = request.header("HTTP-Referer", "https://animesubs.app");
@@ -122,6 +122,7 @@ async fn call_llm_api(
     let content = if is_gemini_openai_compat
         || config.provider == "openai"
         || config.provider == "openrouter"
+        || config.provider == "minimax"
     {
         response_json["choices"][0]["message"]["content"]
             .as_str()
@@ -143,7 +144,11 @@ async fn call_llm_api(
 
     eprintln!("LLM response content: {}", content);
 
-    let cleaned_content = clean_json_response(&content);
+    // Remove reasoning/thinking blocks from models like DeepSeek R1, OpenAI o1, etc.
+    let thinking_regex = Regex::new(r"<thinking>.*?</thinking>").unwrap();
+    let content_without_thinking = thinking_regex.replace_all(&content, "").to_string();
+
+    let cleaned_content = clean_json_response(&content_without_thinking);
 
     let translation_response: TranslationResponse = serde_json::from_str(&cleaned_content)
         .map_err(|e| {

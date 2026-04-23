@@ -78,6 +78,7 @@ Go to Settings and configure your preferred provider:
 | Ollama | `http://localhost:11434/v1` | No |
 | LM Studio | `http://localhost:1234/v1` | No |
 | OpenRouter | `https://openrouter.ai/api/v1` | Yes |
+| MiniMax (Token Plan) | `https://api.minimax.io/v1` | Yes |
 
 ### Translation Options
 - **Target Language**: Choose from 15+ supported languages
