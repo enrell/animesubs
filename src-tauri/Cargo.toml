@@ -1,6 +1,6 @@
 [package]
 name = "animesubs"
-version = "0.1.3"
+version = "0.1.4"
 description = "Desktop app to extract, translate and embed subtitles into videos."
 authors = ["Ênrell"]
 edition = "2021"
