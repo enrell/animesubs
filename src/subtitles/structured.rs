@@ -4,6 +4,10 @@ use crate::error::{Result, SubtitleToolkitError};
 
 use super::model::{SubtitleCue, SubtitleDocument};
 
+/// Serialize a subtitle document to numbered text for LLM translation.
+///
+/// Each cue becomes `<id> text` on its own line. Internal newlines are
+/// encoded as `\\N` (ASS hard break).
 pub fn to_numbered_text(document: &SubtitleDocument) -> String {
     document
         .cues
@@ -13,6 +17,11 @@ pub fn to_numbered_text(document: &SubtitleDocument) -> String {
         .join("\n")
 }
 
+/// Parse numbered text from an LLM response back into a cue ID → text map.
+///
+/// Validates that all `expected_ids` are present, no duplicates exist,
+/// and no unexpected IDs appear. Multiline continuation lines are joined
+/// with `\n`.
 pub fn parse_numbered_text(text: &str, expected_ids: &[usize]) -> Result<BTreeMap<usize, String>> {
     let expected: HashSet<usize> = expected_ids.iter().copied().collect();
     let mut parsed = BTreeMap::new();
@@ -75,6 +84,7 @@ fn parse_numbered_line(line: &str) -> Result<Option<(usize, &str)>> {
     Ok(Some((id, value.trim_start())))
 }
 
+/// Apply translated text to a document, replacing each cue's text by ID.
 pub fn apply_translation(document: &mut SubtitleDocument, translated: BTreeMap<usize, String>) {
     for (id, text) in translated {
         document.replace_text(id, text);
@@ -119,6 +129,10 @@ fn strip_override_tags(text: &str) -> (String, String) {
     (remaining.to_string(), tags)
 }
 
+/// Strip leading ASS override tags (`{\\pos(...)}`, `{\\an7}`, etc.) from all cues.
+///
+/// Returns a clean document (tags removed) and a map of cue ID → stripped tags.
+/// Use [`reinject_tags`] to restore tags after translation.
 pub fn strip_tags(document: &SubtitleDocument) -> (SubtitleDocument, HashMap<usize, String>) {
     let mut tag_map = HashMap::new();
     let mut clean_cues = Vec::with_capacity(document.cues.len());
@@ -137,6 +151,9 @@ pub fn strip_tags(document: &SubtitleDocument) -> (SubtitleDocument, HashMap<usi
     (SubtitleDocument { cues: clean_cues }, tag_map)
 }
 
+/// Restore ASS override tags previously stripped by [`strip_tags`].
+///
+/// Prepends stored tags back onto each cue's text.
 pub fn reinject_tags(document: &mut SubtitleDocument, tag_map: &HashMap<usize, String>) {
     for cue in &mut document.cues {
         if let Some(tags) = tag_map.get(&cue.id) {
@@ -145,6 +162,11 @@ pub fn reinject_tags(document: &mut SubtitleDocument, tag_map: &HashMap<usize, S
     }
 }
 
+/// Split a subtitle document into chunks for batched LLM translation.
+///
+/// Each chunk's numbered text representation will be at most `max_chars` characters.
+/// Cue IDs are preserved across chunks. A single cue longer than `max_chars`
+/// gets its own chunk (never split mid-cue).
 pub fn chunk_document(document: &SubtitleDocument, max_chars: usize) -> Vec<SubtitleDocument> {
     if document.cues.is_empty() {
         return vec![];

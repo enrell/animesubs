@@ -14,14 +14,31 @@ use crate::subtitles::structured::{
 };
 use crate::translation::{TranslationRequest, Translator};
 
+/// Options for the [`translate_mkv`] pipeline.
 #[derive(Debug, Clone)]
 pub struct TranslateMkvOptions {
+    /// Path to an MKV file or directory containing MKV files.
     pub input: PathBuf,
+    /// Target language code (e.g. `"pt-BR"`, `"en"`, `"ja"`).
     pub target_language: String,
+    /// Specific subtitle track ID to translate. If `None`, selects the first ASS track.
     pub track_id: Option<u64>,
+    /// If `true`, preserves extracted/translated ASS files alongside the MKV.
     pub keep_temp: bool,
 }
 
+/// Translate ASS subtitles in MKV file(s) and mux the result back in-place.
+///
+/// For each MKV file:
+/// 1. Inspects tracks and selects the ASS subtitle track
+/// 2. Extracts the subtitle to a temp directory
+/// 3. Strips ASS override tags (`{\pos(...)}`, `{\an7}`, etc.)
+/// 4. Chunks cues into ~5000-char batches
+/// 5. Translates each chunk via the provided [`Translator`]
+/// 6. Re-injects override tags
+/// 7. Muxes the translated subtitle into the MKV (replacing the original track)
+///
+/// If `input` is a directory, processes all `.mkv` files sequentially.
 pub async fn translate_mkv<T: Translator>(
     options: TranslateMkvOptions,
     translator: &T,

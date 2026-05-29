@@ -2,6 +2,10 @@ use crate::error::{Result, SubtitleToolkitError};
 
 use super::model::{SubtitleCue, SubtitleDocument};
 
+/// A parsed ASS/SSA subtitle file.
+///
+/// Preserves the original file structure (headers, styles, non-dialogue lines)
+/// and allows modifying dialogue text through the [`SubtitleDocument`] API.
 #[derive(Debug, Clone)]
 pub struct AssSubtitle {
     lines: Vec<AssLine>,
@@ -9,6 +13,13 @@ pub struct AssSubtitle {
 }
 
 impl AssSubtitle {
+    /// Parse an ASS/SSA subtitle from a string.
+    ///
+    /// Reads the `[Events]` section, parses the `Format:` line to locate the
+    /// `Text` field, and extracts each `Dialogue:` line. Non-dialogue content
+    /// (headers, styles, comments) is preserved for round-trip rendering.
+    ///
+    /// Cue IDs are assigned sequentially starting from 1.
     pub fn parse(input: &str) -> Result<Self> {
         let mut lines = Vec::new();
         let mut in_events = false;
@@ -72,14 +83,20 @@ impl AssSubtitle {
         })
     }
 
+    /// Returns a reference to the parsed subtitle document.
     pub fn document(&self) -> &SubtitleDocument {
         &self.document
     }
 
+    /// Returns a mutable reference to the parsed subtitle document.
     pub fn document_mut(&mut self) -> &mut SubtitleDocument {
         &mut self.document
     }
 
+    /// Render the subtitle back to an ASS string.
+    ///
+    /// Dialogue lines use the current text from the document; all other
+    /// content (headers, styles, comments) is written as-is.
     pub fn render(&self) -> String {
         let mut rendered = Vec::with_capacity(self.lines.len());
 

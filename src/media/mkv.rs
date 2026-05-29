@@ -6,27 +6,38 @@ use tokio::process::Command;
 
 use crate::error::{Result, SubtitleToolkitError};
 
+/// Parsed MKV container information from `mkvmerge -J`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MkvInfo {
+    /// List of tracks in the MKV.
     pub tracks: Vec<MkvTrack>,
 }
 
+/// A single track inside an MKV container.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MkvTrack {
+    /// Track ID (0-based).
     pub id: u64,
+    /// Track type: `"video"`, `"audio"`, or `"subtitles"`.
     #[serde(rename = "type")]
     pub track_type: String,
+    /// Codec name (e.g. `"SubStationAlpha"`, `"AVC/H.264/MPEG-4p10"`).
     pub codec: Option<String>,
+    /// Track metadata properties.
     pub properties: MkvTrackProperties,
 }
 
+/// Metadata properties for an MKV track.
 #[derive(Debug, Clone, Deserialize)]
 pub struct MkvTrackProperties {
+    /// BCP 47 language code (e.g. `"eng"`, `"jpn"`).
     pub language: Option<String>,
+    /// User-defined track name.
     pub track_name: Option<String>,
 }
 
 impl MkvTrack {
+    /// Returns `true` if this track is an ASS/SSA subtitle.
     pub fn is_ass_subtitle(&self) -> bool {
         self.track_type == "subtitles"
             && self.codec.as_deref().is_some_and(|codec| {
@@ -37,6 +48,10 @@ impl MkvTrack {
     }
 }
 
+/// Discover MKV files at the given path.
+///
+/// If `input` is a file, returns it as a single-element list.
+/// If `input` is a directory, scans for `.mkv` files (non-recursive).
 pub async fn discover_mkv_files(input: &Path) -> Result<Vec<PathBuf>> {
     if input.is_file() {
         if is_mkv(input) {
@@ -66,11 +81,17 @@ pub async fn discover_mkv_files(input: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+/// Inspect an MKV file and return track information.
+///
+/// Requires `mkvmerge` to be installed and in PATH.
 pub async fn inspect_mkv(path: &Path) -> Result<MkvInfo> {
     let output = run_output("mkvmerge", ["-J".into(), path.as_os_str().into()]).await?;
     Ok(serde_json::from_slice(&output)?)
 }
 
+/// Select the first ASS subtitle track, or a specific track by ID.
+///
+/// Returns `None` if no matching ASS track is found.
 pub fn select_ass_track(info: &MkvInfo, requested_track: Option<u64>) -> Option<&MkvTrack> {
     if let Some(track_id) = requested_track {
         return info
@@ -82,6 +103,9 @@ pub fn select_ass_track(info: &MkvInfo, requested_track: Option<u64>) -> Option<
     info.tracks.iter().find(|track| track.is_ass_subtitle())
 }
 
+/// Extract a subtitle track from an MKV file.
+///
+/// Requires `mkvextract` to be installed and in PATH.
 pub async fn extract_subtitle(input: &Path, track_id: u64, output: &Path) -> Result<()> {
     let selector = format!("{track_id}:{}", output.display());
     run_status(
@@ -91,6 +115,10 @@ pub async fn extract_subtitle(input: &Path, track_id: u64, output: &Path) -> Res
     .await
 }
 
+/// Mux a subtitle file into an MKV, replacing the specified track.
+///
+/// Writes to a temporary file first, then renames over the original for safety.
+/// Requires `mkvmerge` to be installed and in PATH.
 pub async fn mux_subtitle_in_place(
     input: &Path,
     replaced_track_id: u64,
