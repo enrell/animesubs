@@ -50,6 +50,9 @@ enum Command {
         #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
         deepl_url: String,
 
+        #[arg(long, default_value = "https://api.openai.com", help = "OpenAI API base URL (any OpenAI-compatible endpoint)")]
+        openai_url: String,
+
         #[arg(long)]
         keep_temp: bool,
 
@@ -90,6 +93,9 @@ enum Command {
         #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
         deepl_url: String,
 
+        #[arg(long, default_value = "https://api.openai.com", help = "OpenAI API base URL (any OpenAI-compatible endpoint)")]
+        openai_url: String,
+
         #[arg(long, help = "Source language code (e.g. en, ja)")]
         source_lang: Option<String>,
     },
@@ -110,9 +116,10 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             ollama_url,
             api_key,
             deepl_url,
+            openai_url,
             source_lang,
         } => {
-            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, api_key)?;
+            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
@@ -138,13 +145,14 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             ollama_url,
             api_key,
             deepl_url,
+            openai_url,
             keep_temp,
             dry_run,
             source_lang,
             resume,
             parallel,
         } => {
-            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, api_key)?;
+            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             translate_mkv(
@@ -170,6 +178,7 @@ fn build_translator(
     model: &str,
     ollama_url: &str,
     deepl_url: &str,
+    openai_url: &str,
     api_key: Option<String>,
 ) -> psyche_subtitle_toolkit::Result<Box<dyn Translator>> {
     match provider {
@@ -183,7 +192,9 @@ fn build_translator(
                     message: "--api-key is required for the openai provider".into(),
                 }
             })?;
-            Ok(Box::new(OpenAiTranslator::new(key, model)?))
+            Ok(Box::new(OpenAiTranslator::with_base_url(
+                openai_url, key, model,
+            )?))
         }
         "deepl" => {
             let key = api_key.ok_or_else(|| {
