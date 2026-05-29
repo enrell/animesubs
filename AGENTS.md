@@ -6,7 +6,7 @@ Guide for AI coding agents working on psyche-subtitle-toolkit.
 
 ```sh
 cargo check                                      # compilation check
-cargo test                                       # run all tests (76 unit + integration)
+cargo test                                       # run all tests (77 unit + integration)
 cargo clippy --all-targets --all-features -- -D warnings  # strict lint
 cargo build --release                            # release binary
 cargo run -- inspect <mkv>                       # inspect MKV tracks
@@ -60,8 +60,8 @@ MKV file → inspect → extract ASS → parse → strip tags → chunk → tran
 ```
 
 Two entry points:
-- `translate_mkv(options, &translator)` — full MKV pipeline (file I/O + external tools)
-- `translate_ass(ass, target_language, &translator)` — subtitle-only pipeline (no file I/O)
+- `translate_mkv(options, translator: Arc<dyn Translator>)` — full MKV pipeline (file I/O + external tools)
+- `translate_ass(ass, target_language, max_concurrent, translator: Arc<dyn Translator>)` — subtitle-only pipeline (no file I/O)
 
 ### Translator Trait
 
@@ -148,13 +148,13 @@ mod tests {
 
 ## Testing
 
-### Test Categories (76 tests total)
+### Test Categories (77 tests total)
 
 | Category | Count | Location | What they test |
 |---|---|---|---|
 | Subtitle parsing | 2 | `subtitles/ass.rs` | ASS parse + render |
 | Structured text | 15 | `subtitles/structured.rs` | Numbered format, tag strip/reinject, chunking |
-| Pipeline integration | 16 | `pipeline.rs` | Full subtitle processing, retry, dry-run, resume with FakeTranslator |
+| Pipeline integration | 17 | `pipeline.rs` | Full subtitle processing, retry, dry-run, resume, concurrency with FakeTranslator |
 | Provider mocks | 5-6 each | `translation/*.rs` | HTTP contracts per provider |
 | Doc-tests | 6 | `lib.rs` + provider files | Compile-check public examples |
 
@@ -209,7 +209,7 @@ Pipeline tests use `FakeTranslator` (defined in `pipeline.rs::tests`) that recor
 - **Lint:** `cargo clippy --all-targets --all-features -- -D warnings` must pass
 - **Format:** `cargo fmt` (default rustfmt)
 - **No unnecessary abstractions:** each provider is a standalone module, no factory/registry
-- **No `Box<dyn>` in library API:** the pipeline uses generics (`T: Translator + ?Sized`); `Box<dyn>` is only in the CLI for provider dispatch
+- **`Arc<dyn Translator>` in library API:** the pipeline uses `Arc<dyn Translator>` for concurrent chunk translation; `Box<dyn>` is only in the CLI for provider dispatch
 
 ## External Dependencies
 
