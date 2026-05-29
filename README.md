@@ -7,22 +7,28 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 ## Features
 
 - Extract ASS subtitle tracks from MKV files via mkvmerge/mkvextract
-- Translate subtitle dialogue through pluggable providers
+- Translate subtitle dialogue through 6 pluggable providers
 - Protect ASS override tags (`{\pos(...)}`, `{\an7}`, etc.) during translation
-- Automatically chunk large subtitles for LLM context limits
+- Automatic chunking (200 lines per request) for LLM context limits
+- Concurrent chunk translation with configurable parallelism
+- Retry with exponential backoff on HTTP, provider, and malformed output errors
 - Mux translated subtitles back into the MKV, replacing the original track
-- Process single files or entire directories sequentially
+- Process single files or entire directories
+- Resume interrupted translations with `--resume`
+- Translate standalone `.ass` files without MKV (via `translate-ass` subcommand)
 
 ## Supported Providers
 
-| Provider | Flag | Authentication | Notes |
-|----------|------|----------------|-------|
-| [Ollama](https://ollama.com) | `--provider ollama` | None (local) | Default. Any Ollama model. |
-| [OpenAI](https://platform.openai.com) | `--provider openai` | `--api-key` | Compatible with any OpenAI-compatible API. |
-| [DeepL](https://www.deepl.com) | `--provider deepl` | `--api-key` | Free tier (500K chars/month) or pro tier. |
-| [Google Translate](https://cloud.google.com/translate) | `--provider google` | `--api-key` | v2 API. First 500K chars/month free. |
-| [Gemini](https://ai.google.dev/gemini-api/docs) | `--provider gemini` | `--api-key` | LLM-based. 1,500 req/day free on Flash models. |
-| [OpenRouter](https://openrouter.ai) | `--provider openrouter` | `--api-key` | 400+ models, including free models. |
+| Provider | Flag | Auth | `--parallel` | Notes |
+|----------|------|------|-------------|-------|
+| [Ollama](https://ollama.com) | `--provider ollama` | None | 3 | Default. Any Ollama model. |
+| [OpenAI](https://platform.openai.com) | `--provider openai` | `--api-key` | 2 | Compatible with any OpenAI-compatible API. |
+| [OpenRouter](https://openrouter.ai) | `--provider openrouter` | `--api-key` | 2 | 400+ models, including free models. |
+| [DeepL](https://www.deepl.com) | `--provider deepl` | `--api-key` | 5 | Free tier (500K chars/month) or pro tier. |
+| [Google Translate](https://cloud.google.com/translate) | `--provider google` | `--api-key` | 10 | v2 API. First 500K chars/month free. |
+| [Gemini](https://ai.google.dev/gemini-api/docs) | `--provider gemini` | `--api-key` | 2 | LLM-based. 1,500 req/day free on Flash models. |
+
+The `--parallel` column shows recommended concurrency for each provider.
 
 ## Installation
 
@@ -77,6 +83,26 @@ psyche-subtitle-toolkit translate --provider gemini --api-key YOUR_KEY --model g
 psyche-subtitle-toolkit translate --provider openrouter --api-key YOUR_KEY --model meta-llama/llama-3.3-70b-instruct:free --input episode.mkv --to pt-BR
 ```
 
+### Translate a standalone ASS file
+
+```sh
+psyche-subtitle-toolkit translate-ass --input source.ass --output translated.ass --to pt-BR --provider deepl --api-key YOUR_KEY
+```
+
+### Resume interrupted translations
+
+If a batch run is interrupted (crash, network failure), restart with `--resume` to skip already-translated files:
+
+```sh
+# First run — interrupted at file 15/20
+psyche-subtitle-toolkit translate --resume --provider ollama --input /media/anime/ --to pt-BR
+
+# Restart — skips files 1-14, continues from 15
+psyche-subtitle-toolkit translate --resume --provider ollama --input /media/anime/ --to pt-BR
+```
+
+Progress is saved to `.psyche-subtitle-toolkit-progress.json` in the input directory and auto-deleted when all files complete.
+
 ### Full options
 
 ```
@@ -86,9 +112,13 @@ psyche-subtitle-toolkit translate --provider openrouter --api-key YOUR_KEY --mod
     --track <TRACK>          Specific subtitle track ID to translate
     --model <MODEL>          Model name [default: llama3.1]
     --ollama-url <URL>       Ollama base URL [default: http://localhost:11434]
-    --api-key <KEY>          API key (required for openai, deepl, google)
+    --api-key <KEY>          API key (required for openai, openrouter, deepl, google, gemini)
     --deepl-url <URL>        DeepL base URL [default: https://api-free.deepl.com]
     --keep-temp              Preserve extracted/translated ASS files
+    --dry-run                Show what would be translated without modifying files
+    --source-lang <LANG>     Source language code (e.g. en, ja)
+    --resume                 Save progress and skip already-translated files on restart
+    --parallel <N>           Max concurrent chunk translations [default: 1]
 ```
 
 ## Library Usage
@@ -103,18 +133,23 @@ psyche-subtitle-toolkit = { path = "../psyche-subtitle-toolkit" }
 ### Translate an MKV file
 
 ```rust
-use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator};
+use std::sync::Arc;
+use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator, Translator};
 
 # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-let translator = OllamaTranslator::new("gemma4:31b-cloud")?;
+let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("gemma4:31b-cloud")?);
 translate_mkv(
     TranslateMkvOptions {
         input: "/media/anime/episode.mkv".into(),
         target_language: "pt-BR".into(),
         track_id: None,
         keep_temp: false,
+        dry_run: false,
+        source_language: Some("en".into()),
+        resume: false,
+        max_concurrent: 3,
     },
-    &translator,
+    translator,
 ).await?;
 # Ok(())
 # }
@@ -123,12 +158,13 @@ translate_mkv(
 ### Translate ASS content directly
 
 ```rust
-use psyche_subtitle_toolkit::{translate_ass, AssSubtitle, OllamaTranslator};
+use std::sync::Arc;
+use psyche_subtitle_toolkit::{translate_ass, AssSubtitle, OllamaTranslator, Translator};
 
 # async fn example() -> psyche_subtitle_toolkit::Result<()> {
 let ass = AssSubtitle::parse(&std::fs::read_to_string("source.ass")?)?;
-let translator = OllamaTranslator::new("llama3.1")?;
-let translated = translate_ass(ass, "pt-BR", &translator).await?;
+let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
+let translated = translate_ass(ass, "pt-BR", Some("en"), 1, translator).await?;
 std::fs::write("translated.ass", translated.render())?;
 # Ok(())
 # }
@@ -159,16 +195,17 @@ impl Translator for MyTranslator {
 2. **Extract** -- `mkvextract tracks` pulls the ASS file to a temp directory
 3. **Parse** -- The ASS parser reads dialogue lines, preserving headers and styles
 4. **Strip tags** -- ASS override tags (`{\pos(...)}`, `{\an7}`) are removed and stored
-5. **Chunk** -- Cues are split into ~5000-char batches for LLM context limits
-6. **Translate** -- Each chunk is sent to the provider as `<N> text` numbered lines
-7. **Apply** -- Translated text is mapped back to cues by ID
-8. **Reinject tags** -- Original override tags are prepended back
-9. **Mux** -- `mkvmerge` replaces the original subtitle track in-place
+5. **Chunk** -- Cues are split into 200-line batches
+6. **Translate** -- Each chunk is sent to the provider as `<N> text` numbered lines (concurrent if `--parallel > 1`)
+7. **Retry** -- Failed chunks (HTTP errors, malformed output) are retried up to 3 times with exponential backoff
+8. **Apply** -- Translated text is mapped back to cues by ID
+9. **Reinject tags** -- Original override tags are prepended back
+10. **Mux** -- `mkvmerge` replaces the original subtitle track in-place
 
 ## Testing
 
 ```sh
-cargo test           # 42 unit + integration tests
+cargo test           # 77 unit + integration tests
 cargo clippy -- -D warnings
 ```
 
