@@ -58,6 +58,9 @@ enum Command {
 
         #[arg(long, help = "Source language code (e.g. en, ja)")]
         source_lang: Option<String>,
+
+        #[arg(long, help = "Save progress and skip already-translated files on restart")]
+        resume: bool,
     },
     TranslateAss {
         #[arg(short, long)]
@@ -132,6 +135,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             keep_temp,
             dry_run,
             source_lang,
+            resume,
         } => {
             let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, api_key)?;
             translate_mkv(
@@ -142,6 +146,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     keep_temp,
                     dry_run,
                     source_language: source_lang,
+                    resume,
                 },
                 &*translator,
             )

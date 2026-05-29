@@ -19,6 +19,7 @@
 //!         keep_temp: false,
 //!         dry_run: false,
 //!         source_language: None,
+//!         resume: false,
 //!     },
 //!     &translator,
 //! ).await?;

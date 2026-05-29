@@ -30,6 +30,8 @@ pub struct TranslateMkvOptions {
     pub dry_run: bool,
     /// Optional source language hint (e.g. `"en"`, `"ja"`).
     pub source_language: Option<String>,
+    /// If `true`, saves progress to a file and skips already-translated files on restart.
+    pub resume: bool,
 }
 
 /// Translate ASS subtitles in MKV file(s) and mux the result back in-place.
@@ -50,8 +52,35 @@ pub async fn translate_mkv<T: Translator + ?Sized>(
 ) -> Result<()> {
     let files = discover_mkv_files(&options.input).await?;
 
-    for file in files {
+    let progress_path = progress_file_path(&options.input);
+    let mut completed: Vec<String> = if options.resume && progress_path.exists() {
+        let data = tokio::fs::read_to_string(&progress_path).await?;
+        serde_json::from_str(&data).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let total = files.len();
+    for (i, file) in files.into_iter().enumerate() {
+        let file_str = file.to_string_lossy().to_string();
+
+        if options.resume && completed.contains(&file_str) {
+            eprintln!("[resume] skipping ({}/{}): {}", i + 1, total, file.display());
+            continue;
+        }
+
         translate_one(file, &options, translator).await?;
+
+        if options.resume {
+            completed.push(file_str);
+            let json = serde_json::to_string_pretty(&completed)?;
+            tokio::fs::write(&progress_path, &json).await?;
+            eprintln!("[resume] progress saved ({}/{})", completed.len(), total);
+        }
+    }
+
+    if options.resume && progress_path.exists() {
+        tokio::fs::remove_file(&progress_path).await?;
     }
 
     Ok(())
@@ -103,6 +132,17 @@ async fn translate_one<T: Translator + ?Sized>(
     }
 
     Ok(())
+}
+
+fn progress_file_path(input: &std::path::Path) -> PathBuf {
+    let dir = if input.is_dir() {
+        input.to_path_buf()
+    } else if input.extension().is_some() {
+        input.parent().unwrap_or(input).to_path_buf()
+    } else {
+        input.to_path_buf()
+    };
+    dir.join(".psyche-subtitle-toolkit-progress.json")
 }
 
 /// Generate a dry-run summary for an ASS subtitle: cue count, char count, chunk count.
@@ -656,5 +696,73 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         // Should have been called 4 times (1 initial + 3 retries)
         let texts = translator.received_texts();
         assert_eq!(texts.len(), 4);
+    }
+
+    #[test]
+    fn progress_file_path_for_directory() {
+        let path = progress_file_path(std::path::Path::new("/media/anime"));
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/media/anime/.psyche-subtitle-toolkit-progress.json")
+        );
+    }
+
+    #[test]
+    fn progress_file_path_for_file() {
+        let path = progress_file_path(std::path::Path::new("/media/anime/episode.mkv"));
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/media/anime/.psyche-subtitle-toolkit-progress.json")
+        );
+    }
+
+    #[tokio::test]
+    async fn progress_file_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let progress_path = dir.path().join(".psyche-subtitle-toolkit-progress.json");
+
+        let completed = vec![
+            "/media/anime/ep1.mkv".to_string(),
+            "/media/anime/ep2.mkv".to_string(),
+        ];
+        let json = serde_json::to_string_pretty(&completed).unwrap();
+        tokio::fs::write(&progress_path, &json).await.unwrap();
+
+        let data = tokio::fs::read_to_string(&progress_path).await.unwrap();
+        let loaded: Vec<String> = serde_json::from_str(&data).unwrap();
+
+        assert_eq!(loaded, completed);
+    }
+
+    #[tokio::test]
+    async fn progress_file_handles_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let progress_path = dir.path().join(".psyche-subtitle-toolkit-progress.json");
+
+        // Should return empty vec when file doesn't exist
+        let completed: Vec<String> = if progress_path.exists() {
+            let data = tokio::fs::read_to_string(&progress_path).await.unwrap();
+            serde_json::from_str(&data).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        assert!(completed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn progress_file_handles_corrupted_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let progress_path = dir.path().join(".psyche-subtitle-toolkit-progress.json");
+
+        tokio::fs::write(&progress_path, "not valid json")
+            .await
+            .unwrap();
+
+        let data = tokio::fs::read_to_string(&progress_path).await.unwrap();
+        let completed: Vec<String> = serde_json::from_str(&data).unwrap_or_default();
+
+        // Should fall back to empty vec on corrupt JSON
+        assert!(completed.is_empty());
     }
 }
