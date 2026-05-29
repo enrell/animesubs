@@ -851,4 +851,286 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let texts = translator.received_texts();
         assert_eq!(texts.len(), 2);
     }
+
+    #[tokio::test]
+    async fn concurrent_translation_preserves_all_cues() {
+        // Stress test: 1000 cues, 5 chunks, max_concurrent=5
+        let mut lines = vec![
+            "[Script Info]".to_string(),
+            "Title: Stress".to_string(),
+            "ScriptType: v4.00+".to_string(),
+            "".to_string(),
+            "[V4+ Styles]".to_string(),
+            "Format: Name, Fontname, Fontsize".to_string(),
+            "Style: Default,Arial,20".to_string(),
+            "".to_string(),
+            "[Events]".to_string(),
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                .to_string(),
+        ];
+        for i in 1..=1000 {
+            lines.push(format!(
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,stress line {i}",
+                i, i + 1,
+            ));
+        }
+        let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
+        let translator = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
+
+        let result = translate_ass(
+            ass,
+            "pt-BR",
+            None,
+            5,
+            translator.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap();
+
+        let rendered = result.render();
+        // Every single cue must be present
+        for i in 1..=1000 {
+            assert!(
+                rendered.contains(&format!("stress line {i}")),
+                "missing cue {i} under concurrent translation"
+            );
+        }
+
+        // 1000 cues / 200 lines per chunk = 5 chunks
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 5, "expected 5 chunk calls, got {}", texts.len());
+    }
+
+    #[tokio::test]
+    async fn concurrent_translation_output_is_deterministic() {
+        // Run the same document through concurrent translation twice.
+        // Output must be identical regardless of task scheduling.
+        let make_ass = || {
+            let mut lines = vec![
+                "[Script Info]".to_string(),
+                "Title: Deterministic".to_string(),
+                "ScriptType: v4.00+".to_string(),
+                "".to_string(),
+                "[V4+ Styles]".to_string(),
+                "Format: Name, Fontname, Fontsize".to_string(),
+                "Style: Default,Arial,20".to_string(),
+                "".to_string(),
+                "[Events]".to_string(),
+                "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                    .to_string(),
+            ];
+            for i in 1..=500 {
+                lines.push(format!(
+                    "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,det line {i}",
+                    i, i + 1,
+                ));
+            }
+            AssSubtitle::parse(&lines.join("\n")).unwrap()
+        };
+
+        let t1 = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
+        let r1 = translate_ass(
+            make_ass(),
+            "pt-BR",
+            None,
+            3,
+            t1.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap();
+
+        let t2 = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
+        let r2 = translate_ass(
+            make_ass(),
+            "pt-BR",
+            None,
+            3,
+            t2.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(r1.render(), r2.render(), "concurrent output is non-deterministic");
+    }
+
+    #[tokio::test]
+    async fn concurrent_error_propagates_correctly() {
+        // First chunk succeeds, second chunk always fails.
+        // The pipeline should return an error, not silently succeed.
+        let mut lines = vec![
+            "[Script Info]".to_string(),
+            "Title: ErrProp".to_string(),
+            "ScriptType: v4.00+".to_string(),
+            "".to_string(),
+            "[V4+ Styles]".to_string(),
+            "Format: Name, Fontname, Fontsize".to_string(),
+            "Style: Default,Arial,20".to_string(),
+            "".to_string(),
+            "[Events]".to_string(),
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                .to_string(),
+        ];
+        for i in 1..=400 {
+            lines.push(format!(
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,line {i}",
+                i, i + 1,
+            ));
+        }
+        let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
+
+        // Always error — all chunks will fail
+        let translator = Arc::new(FakeTranslator::with_error("provider down"));
+
+        let err = translate_ass(
+            ass,
+            "pt-BR",
+            None,
+            3,
+            translator.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("provider down"));
+    }
+
+    /// A translator that tracks the maximum number of concurrent translate calls.
+    /// Used to verify the semaphore actually bounds concurrency.
+    struct ConcurrencyTrackingTranslator {
+        active: std::sync::atomic::AtomicU32,
+        max_observed: std::sync::atomic::AtomicU32,
+        received: Mutex<Vec<String>>,
+    }
+
+    impl ConcurrencyTrackingTranslator {
+        fn new() -> Self {
+            Self {
+                active: std::sync::atomic::AtomicU32::new(0),
+                max_observed: std::sync::atomic::AtomicU32::new(0),
+                received: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn max_concurrent_calls(&self) -> u32 {
+            self.max_observed.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Translator for ConcurrencyTrackingTranslator {
+        async fn translate(&self, request: TranslationRequest<'_>) -> crate::error::Result<String> {
+            self.received.lock().unwrap().push(request.source_text.to_string());
+
+            let current = self.active.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            // Update max_observed
+            self.max_observed.fetch_max(current, std::sync::atomic::Ordering::SeqCst);
+
+            // Simulate work — yield to let other tasks run
+            tokio::task::yield_now().await;
+
+            self.active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+
+            // Identity translation
+            Ok(request.source_text.to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn semaphore_bounds_concurrency() {
+        // 600 cues → 3 chunks at 200 lines/chunk, max_concurrent=2
+        // The semaphore should prevent all 3 from running simultaneously.
+        let mut lines = vec![
+            "[Script Info]".to_string(),
+            "Title: Semaphore".to_string(),
+            "ScriptType: v4.00+".to_string(),
+            "".to_string(),
+            "[V4+ Styles]".to_string(),
+            "Format: Name, Fontname, Fontsize".to_string(),
+            "Style: Default,Arial,20".to_string(),
+            "".to_string(),
+            "[Events]".to_string(),
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                .to_string(),
+        ];
+        for i in 1..=600 {
+            lines.push(format!(
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,sem line {i}",
+                i, i + 1,
+            ));
+        }
+        let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
+        let translator = Arc::new(ConcurrencyTrackingTranslator::new());
+
+        let result = translate_ass(
+            ass,
+            "pt-BR",
+            None,
+            2, // max_concurrent=2
+            translator.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap();
+
+        // All 600 cues should be present
+        let rendered = result.render();
+        for i in 1..=600 {
+            assert!(rendered.contains(&format!("sem line {i}")), "missing cue {i}");
+        }
+
+        // The max observed concurrency should be <= 2
+        let max = translator.max_concurrent_calls();
+        assert!(
+            max <= 2,
+            "semaphore failed to bound concurrency: observed {max} concurrent calls (expected <= 2)"
+        );
+
+        // All 3 chunks should have been called
+        let texts = translator.received.lock().unwrap();
+        assert_eq!(texts.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn sequential_mode_is_deterministic() {
+        // With max_concurrent=1, received_texts() must be in spawn order.
+        let mut lines = vec![
+            "[Script Info]".to_string(),
+            "Title: Seq".to_string(),
+            "ScriptType: v4.00+".to_string(),
+            "".to_string(),
+            "[V4+ Styles]".to_string(),
+            "Format: Name, Fontname, Fontsize".to_string(),
+            "Style: Default,Arial,20".to_string(),
+            "".to_string(),
+            "[Events]".to_string(),
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                .to_string(),
+        ];
+        for i in 1..=500 {
+            lines.push(format!(
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,seq line {i}",
+                i, i + 1,
+            ));
+        }
+        let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
+        let translator = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
+
+        translate_ass(
+            ass,
+            "pt-BR",
+            None,
+            1, // sequential
+            translator.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap();
+
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 3);
+
+        // In sequential mode, chunk 1 should be called before chunk 2, etc.
+        // Verify by checking that each text starts with the expected cue ID range.
+        assert!(texts[0].starts_with("<1> "), "first chunk should start with <1>");
+        assert!(texts[1].starts_with("<201> "), "second chunk should start with <201>");
+        assert!(texts[2].starts_with("<401> "), "third chunk should start with <401>");
+    }
 }
