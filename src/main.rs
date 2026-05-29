@@ -63,9 +63,6 @@ enum Command {
         #[arg(long, help = "Show what would be translated without modifying files")]
         dry_run: bool,
 
-        #[arg(long, help = "Source language code (e.g. en, ja)")]
-        source_lang: Option<String>,
-
         #[arg(long, help = "Save progress and skip already-translated files on restart")]
         resume: bool,
 
@@ -102,9 +99,6 @@ enum Command {
 
         #[arg(long, default_value = "https://api.anthropic.com", help = "Anthropic API base URL")]
         anthropic_url: String,
-
-        #[arg(long, help = "Source language code (e.g. en, ja)")]
-        source_lang: Option<String>,
     },
 }
 
@@ -125,7 +119,6 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             deepl_url,
             openai_url,
             anthropic_url,
-            source_lang,
         } => {
             let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, &anthropic_url, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
@@ -143,7 +136,6 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                 let translated = psyche_subtitle_toolkit::translate_vtt(
                     vtt,
                     &to,
-                    source_lang.as_deref(),
                     1,
                     translator,
                 )
@@ -154,7 +146,6 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                 let translated = psyche_subtitle_toolkit::translate_srt(
                     srt,
                     &to,
-                    source_lang.as_deref(),
                     1,
                     translator,
                 )
@@ -165,7 +156,6 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                 let translated = translate_ass(
                     ass,
                     &to,
-                    source_lang.as_deref(),
                     1,
                     translator,
                 )
@@ -188,7 +178,6 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             anthropic_url,
             keep_temp,
             dry_run,
-            source_lang,
             resume,
             parallel,
         } => {
@@ -202,7 +191,6 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     track_id: track,
                     keep_temp,
                     dry_run,
-                    source_language: source_lang,
                     resume,
                     max_concurrent: parallel,
                 },
@@ -237,6 +225,26 @@ fn build_translator(
                 openai_url, key, model,
             )?))
         }
+        "openrouter" => {
+            let key = api_key.ok_or_else(|| {
+                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                    provider: "openrouter",
+                    message: "--api-key is required for the openrouter provider".into(),
+                }
+            })?;
+            Ok(Box::new(OpenRouterTranslator::new(key, model)?))
+        }
+        "anthropic" => {
+            let key = api_key.ok_or_else(|| {
+                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                    provider: "anthropic",
+                    message: "--api-key is required for the anthropic provider".into(),
+                }
+            })?;
+            Ok(Box::new(AnthropicTranslator::with_base_url(
+                anthropic_url, key, model,
+            )?))
+        }
         "deepl" => {
             let key = api_key.ok_or_else(|| {
                 psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
@@ -264,26 +272,6 @@ fn build_translator(
             })?;
             Ok(Box::new(GeminiTranslator::new(key, model)?))
         }
-        "openrouter" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "openrouter",
-                    message: "--api-key is required for the openrouter provider".into(),
-                }
-            })?;
-            Ok(Box::new(OpenRouterTranslator::new(key, model)?))
-        }
-        "anthropic" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "anthropic",
-                    message: "--api-key is required for the anthropic provider".into(),
-                }
-            })?;
-            Ok(Box::new(AnthropicTranslator::with_base_url(
-                anthropic_url, key, model,
-            )?))
-        }
         unknown => Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
             provider: "cli",
             message: format!(
@@ -295,18 +283,31 @@ fn build_translator(
 
 async fn inspect(input: PathBuf) -> psyche_subtitle_toolkit::Result<()> {
     let info = inspect_mkv(&input).await?;
-    let selected = select_ass_track(&info, None).map(|track| track.id);
 
-    for track in info.tracks {
-        let marker = if Some(track.id) == selected { "*" } else { " " };
+    for track in &info.tracks {
+        let marker = if track.is_ass_subtitle() || track.is_srt_subtitle() || track.is_vtt_subtitle() {
+            "*"
+        } else {
+            " "
+        };
+        let name = track
+            .properties
+            .track_name
+            .as_deref()
+            .unwrap_or_default();
         println!(
-            "{marker} track {}: type={} codec={} language={} name={}",
+            "{} track {}: type={} codec={} language={} name={}",
+            marker,
             track.id,
             track.track_type,
             track.codec.as_deref().unwrap_or("unknown"),
-            track.properties.language.as_deref().unwrap_or("und"),
-            track.properties.track_name.as_deref().unwrap_or("")
+            track.properties.language.as_deref().unwrap_or("unknown"),
+            name,
         );
+    }
+
+    if let Some(track) = select_ass_track(&info, None) {
+        eprintln!("\nAuto-selected track {} for translation", track.id);
     }
 
     Ok(())

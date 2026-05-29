@@ -66,7 +66,6 @@ impl Translator for GoogleTranslator {
             .json(&GoogleTranslateRequest {
                 q: request.source_text.lines().collect(),
                 target: request.target_language,
-                source: request.source_language,
                 format: "text",
             })
             .send()
@@ -105,8 +104,6 @@ impl Translator for GoogleTranslator {
 struct GoogleTranslateRequest<'a> {
     q: Vec<&'a str>,
     target: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<&'a str>,
     format: &'static str,
 }
 
@@ -151,7 +148,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt",
-                source_language: None,
             })
             .await
             .unwrap();
@@ -180,7 +176,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "de",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -205,7 +200,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: r"<1> {\b1}Bold text",
                 target_language: "es",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -227,7 +221,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt",
-            source_language: None,
             })
             .await
             .unwrap_err();
@@ -252,37 +245,11 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt",
-            source_language: None,
             })
             .await
             .unwrap_err();
 
         assert!(err.to_string().contains("no translations"));
-    }
-
-    #[tokio::test]
-    async fn sends_source_when_provided() {
-        let server = MockServer::start().await;
-
-        Mock::given(method("POST"))
-            .and(path("/language/translate/v2"))
-            .and(wiremock::matchers::body_string_contains(r#""source":"ja""#))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": { "translations": [{ "translatedText": "<1> Olá" }] }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let translator = GoogleTranslator::with_base_url(server.uri(), "test-key").unwrap();
-        translator
-            .translate(TranslationRequest {
-                source_text: "<1> hello",
-                target_language: "pt",
-                source_language: Some("ja"),
-            })
-            .await
-            .unwrap();
     }
 
     #[tokio::test]
@@ -307,7 +274,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt",
-                source_language: None,
             })
             .await
             .unwrap();
@@ -335,7 +301,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> Line one\n<2> Line two\n<3> Line three",
                 target_language: "de",
-                source_language: None,
             })
             .await
             .unwrap();

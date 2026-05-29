@@ -215,11 +215,37 @@ impl Translator for MyTranslator {
 ## Testing
 
 ```sh
-cargo test           # 105 unit + 12 doc-tests
+cargo test           # 101 unit + 12 doc-tests
 cargo clippy -- -D warnings
 ```
 
 Provider tests use `wiremock` to mock HTTP endpoints -- no real API calls.
+
+## Release Notes
+
+### v0.2.0
+
+- **SRT support** — parse, translate, and render SubRip subtitles
+- **WebVTT support** — parse, translate, and render WebVTT subtitles
+- **Anthropic provider** — Messages API (`/v1/messages`) with custom endpoint support
+- **Remove `--source-lang`** — all providers auto-detect source language, making the flag redundant
+- **Format auto-detection** — `translate-ass` CLI auto-detects ASS/SRT/VTT by extension or content
+- **MKV format priority** — ASS > SRT > VTT when multiple subtitle tracks exist
+- **Refactored pipeline** — `translate_document()` helper shared by ASS, SRT, and VTT pipelines
+
+### v0.1.0
+
+Initial release:
+
+- 7 translation providers (Ollama, OpenAI, OpenRouter, DeepL, Google, Gemini)
+- `--parallel N` for concurrent chunk translation
+- `--resume` for interrupted batch recovery
+- `--dry-run` to preview without modifying files
+- Retry with exponential backoff on HTTP and malformed output errors
+- DeepL/Google batch mode (per-line array elements)
+- 200 lines per chunk
+- Progress output to stderr
+- `translate-ass` subcommand for standalone subtitle files
 
 ## License
 

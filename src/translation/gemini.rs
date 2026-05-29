@@ -82,17 +82,11 @@ impl Translator for GeminiTranslator {
                 },
                 contents: vec![Content {
                     parts: vec![Part {
-                        text: {
-                            let source_hint = match request.source_language {
-                                Some(lang) => format!("Source language: {lang}\n"),
-                                None => String::new(),
-                            };
-                            format!(
-                                "Target language: {lang}\n{source_hint}\n{text}",
-                                lang = request.target_language,
-                                text = request.source_text,
-                            )
-                        },
+                        text: format!(
+                            "Target language: {lang}\n\n{text}",
+                            lang = request.target_language,
+                            text = request.source_text,
+                        ),
                     }],
                 }],
                 generation_config: GenerationConfig {
@@ -219,7 +213,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -247,7 +240,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "de",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -271,7 +263,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -296,7 +287,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
-            source_language: None,
             })
             .await
             .unwrap_err();
@@ -323,7 +313,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
-            source_language: None,
             })
             .await
             .unwrap_err();
@@ -352,7 +341,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
-            source_language: None,
             })
             .await
             .unwrap_err();

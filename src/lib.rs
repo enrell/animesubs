@@ -34,7 +34,6 @@
 //!         track_id: None,
 //!         keep_temp: false,
 //!         dry_run: false,
-//!         source_language: None,
 //!         resume: false,
 //!         max_concurrent: 1,
 //!     },
@@ -53,7 +52,7 @@
 //! # async fn example() -> psyche_subtitle_toolkit::Result<()> {
 //! let ass = AssSubtitle::parse(&std::fs::read_to_string("source.ass")?)?;
 //! let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
-//! let translated = translate_ass(ass, "pt-BR", Some("en"), 1, translator).await?;
+//! let translated = translate_ass(ass, "pt-BR", 1, translator).await?;
 //! std::fs::write("translated.ass", translated.render())?;
 //! # Ok(())
 //! # }

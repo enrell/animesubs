@@ -34,8 +34,6 @@ pub struct TranslateMkvOptions {
     pub keep_temp: bool,
     /// If `true`, shows what would be translated without modifying files.
     pub dry_run: bool,
-    /// Optional source language hint (e.g. `"en"`, `"ja"`).
-    pub source_language: Option<String>,
     /// If `true`, saves progress to a file and skips already-translated files on restart.
     pub resume: bool,
     /// Maximum number of chunks to translate concurrently. Default: 1 (sequential).
@@ -134,7 +132,6 @@ async fn translate_one(
             translate_ass(
                 ass,
                 &options.target_language,
-                options.source_language.as_deref(),
                 options.max_concurrent,
                 translator,
             )
@@ -151,7 +148,6 @@ async fn translate_one(
             translate_srt(
                 srt,
                 &options.target_language,
-                options.source_language.as_deref(),
                 options.max_concurrent,
                 translator,
             )
@@ -168,7 +164,6 @@ async fn translate_one(
             translate_vtt(
                 vtt,
                 &options.target_language,
-                options.source_language.as_deref(),
                 options.max_concurrent,
                 translator,
             )
@@ -231,12 +226,11 @@ pub fn dry_run_summary(doc: &SubtitleDocument, target_language: &str) -> String 
 pub async fn translate_ass(
     mut ass: AssSubtitle,
     target_language: &str,
-    source_language: Option<&str>,
     max_concurrent: usize,
     translator: Arc<dyn Translator>,
 ) -> Result<AssSubtitle> {
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
-    clean_doc = translate_document(clean_doc, target_language, source_language, max_concurrent, translator).await?;
+    clean_doc = translate_document(clean_doc, target_language, max_concurrent, translator).await?;
     reinject_tags(&mut clean_doc, &tag_map);
     *ass.document_mut() = clean_doc;
     Ok(ass)
@@ -253,14 +247,12 @@ pub async fn translate_ass(
 pub async fn translate_srt(
     mut srt: SrtSubtitle,
     target_language: &str,
-    source_language: Option<&str>,
     max_concurrent: usize,
     translator: Arc<dyn Translator>,
 ) -> Result<SrtSubtitle> {
     let clean_doc = translate_document(
         srt.document().clone(),
         target_language,
-        source_language,
         max_concurrent,
         translator,
     )
@@ -280,14 +272,12 @@ pub async fn translate_srt(
 pub async fn translate_vtt(
     mut vtt: VttSubtitle,
     target_language: &str,
-    source_language: Option<&str>,
     max_concurrent: usize,
     translator: Arc<dyn Translator>,
 ) -> Result<VttSubtitle> {
     let clean_doc = translate_document(
         vtt.document().clone(),
         target_language,
-        source_language,
         max_concurrent,
         translator,
     )
@@ -300,7 +290,6 @@ pub async fn translate_vtt(
 async fn translate_document(
     mut doc: SubtitleDocument,
     target_language: &str,
-    source_language: Option<&str>,
     max_concurrent: usize,
     translator: Arc<dyn Translator>,
 ) -> Result<SubtitleDocument> {
@@ -339,7 +328,6 @@ async fn translate_document(
             })?;
         let translator = translator.clone();
         let target = target_language.to_string();
-        let source = source_language.map(|s| s.to_string());
 
         join_set.spawn(async move {
             let _permit = permit;
@@ -350,13 +338,11 @@ async fn translate_document(
                 let ids = ids_clone.clone();
                 let translator = translator.clone();
                 let target = target.clone();
-                let source = source.clone();
                 async move {
                     let translated_text = translator
                         .translate(TranslationRequest {
                             source_text: &numbered,
                             target_language: &target,
-                            source_language: source.as_deref(),
                         })
                         .await?;
                     parse_numbered_text(&translated_text, &ids)
@@ -510,7 +496,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         responses.insert("<1> Hello world\n<2> Goodbye world".to_string(), "<1> Olá mundo\n<2> Adeus mundo".to_string());
 
         let translator = Arc::new(FakeTranslator::new(responses));
-        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Olá mundo"));
@@ -532,7 +518,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         responses.insert("<1> Hello world\n<2> Goodbye world".to_string(), "<1> translated1\n<2> translated2".to_string());
 
         let translator = Arc::new(FakeTranslator::new(responses));
-        translate_ass(ass, "ja", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
+        translate_ass(ass, "ja", 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
 
         let texts = translator.received_texts();
         assert_eq!(texts.len(), 1);
@@ -551,7 +537,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         );
 
         let translator = Arc::new(FakeTranslator::new(responses));
-        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         // Tags reinjected
@@ -604,7 +590,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let translator = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
 
         let ass = AssSubtitle::parse(&ass_content).unwrap();
-        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         // All 300 cues should be present
@@ -640,7 +626,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
         let translator = FakeTranslator::with_error("rate limit exceeded");
 
-        let err = translate_ass(ass, "pt-BR", None, 1, Arc::new(translator) as Arc<dyn Translator>).await.unwrap_err();
+        let err = translate_ass(ass, "pt-BR", 1, Arc::new(translator) as Arc<dyn Translator>).await.unwrap_err();
 
         assert!(err.to_string().contains("fake"));
         assert!(err.to_string().contains("rate limit exceeded"));
@@ -658,7 +644,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         );
 
         let translator = FakeTranslator::new(responses);
-        let err = translate_ass(ass, "pt-BR", None, 1, Arc::new(translator) as Arc<dyn Translator>).await.unwrap_err();
+        let err = translate_ass(ass, "pt-BR", 1, Arc::new(translator) as Arc<dyn Translator>).await.unwrap_err();
 
         assert!(err.to_string().contains("missing id <2>"));
     }
@@ -687,7 +673,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
         );
 
         let translator = Arc::new(FakeTranslator::new(responses));
-        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Primeira linha"));
@@ -695,7 +681,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
     }
 
     #[tokio::test]
-    async fn pipeline_passes_source_language_to_translator() {
+    async fn pipeline_translates_basic_document() {
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
 
         let mut responses = std::collections::HashMap::new();
@@ -705,27 +691,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
         );
 
         let translator = Arc::new(FakeTranslator::new(responses));
-        translate_ass(ass, "pt-BR", Some("en"), 1, translator.clone() as Arc<dyn Translator>)
-            .await
-            .unwrap();
-
-        // Verify the translator was called (source_language flows through without breaking)
-        let texts = translator.received_texts();
-        assert_eq!(texts.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn pipeline_works_with_source_language_none() {
-        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
-
-        let mut responses = std::collections::HashMap::new();
-        responses.insert(
-            "<1> Hello world\n<2> Goodbye world".to_string(),
-            "<1> translated1\n<2> translated2".to_string(),
-        );
-
-        let translator = Arc::new(FakeTranslator::new(responses));
-        translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>)
+        translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>)
             .await
             .unwrap();
 
@@ -816,7 +782,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "<1> Olá mundo\n<2> Adeus mundo".to_string(), // correct
         ]));
 
-        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Olá mundo"));
@@ -839,7 +805,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "<1> Olá mundo".to_string(), // 4 attempts total (1 initial + 3 retries)
         ]));
 
-        let err = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>)
+        let err = translate_ass(ass, "pt-BR", 1, translator.clone() as Arc<dyn Translator>)
             .await
             .unwrap_err();
 
@@ -947,7 +913,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let result = translate_ass(
             ass,
             "pt-BR",
-            None,
             2,
             translator.clone() as Arc<dyn Translator>,
         )
@@ -992,7 +957,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let result = translate_ass(
             ass,
             "pt-BR",
-            None,
             5,
             translator.clone() as Arc<dyn Translator>,
         )
@@ -1044,7 +1008,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let r1 = translate_ass(
             make_ass(),
             "pt-BR",
-            None,
             3,
             t1.clone() as Arc<dyn Translator>,
         )
@@ -1055,7 +1018,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let r2 = translate_ass(
             make_ass(),
             "pt-BR",
-            None,
             3,
             t2.clone() as Arc<dyn Translator>,
         )
@@ -1096,7 +1058,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let err = translate_ass(
             ass,
             "pt-BR",
-            None,
             3,
             translator.clone() as Arc<dyn Translator>,
         )
@@ -1176,7 +1137,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let result = translate_ass(
             ass,
             "pt-BR",
-            None,
             2, // max_concurrent=2
             translator.clone() as Arc<dyn Translator>,
         )
@@ -1229,7 +1189,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         translate_ass(
             ass,
             "pt-BR",
-            None,
             1, // sequential
             translator.clone() as Arc<dyn Translator>,
         )

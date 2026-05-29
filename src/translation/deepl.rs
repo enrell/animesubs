@@ -66,7 +66,6 @@ impl Translator for DeepLTranslator {
             .json(&DeepLTranslateRequest {
                 text: request.source_text.lines().collect(),
                 target_lang: &request.target_language.to_uppercase(),
-                source_lang: request.source_language.map(|l| l.to_uppercase()),
                 split_sentences: "0",
                 preserve_formatting: true,
             })
@@ -105,8 +104,6 @@ impl Translator for DeepLTranslator {
 struct DeepLTranslateRequest<'a> {
     text: Vec<&'a str>,
     target_lang: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_lang: Option<String>,
     split_sentences: &'static str,
     preserve_formatting: bool,
 }
@@ -144,7 +141,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
-                source_language: None,
             })
             .await
             .unwrap();
@@ -169,7 +165,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "de",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -192,7 +187,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "pt-BR",
-            source_language: None,
             })
             .await
             .unwrap();
@@ -214,7 +208,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "de",
-            source_language: None,
             })
             .await
             .unwrap_err();
@@ -239,37 +232,11 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "de",
-            source_language: None,
             })
             .await
             .unwrap_err();
 
         assert!(err.to_string().contains("no translations"));
-    }
-
-    #[tokio::test]
-    async fn sends_source_lang_when_provided() {
-        let server = MockServer::start().await;
-
-        Mock::given(method("POST"))
-            .and(path("/v2/translate"))
-            .and(wiremock::matchers::body_string_contains(r#""source_lang":"JA"#))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "translations": [{ "text": "<1> Olá" }]
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let translator = DeepLTranslator::with_base_url(server.uri(), "test-key").unwrap();
-        translator
-            .translate(TranslationRequest {
-                source_text: "<1> hello",
-                target_language: "pt-BR",
-                source_language: Some("ja"),
-            })
-            .await
-            .unwrap();
     }
 
     #[tokio::test]
@@ -292,7 +259,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
-                source_language: None,
             })
             .await
             .unwrap();
@@ -318,7 +284,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> Line one\n<2> Line two\n<3> Line three",
                 target_language: "de",
-                source_language: None,
             })
             .await
             .unwrap();

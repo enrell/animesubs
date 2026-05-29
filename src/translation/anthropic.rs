@@ -59,11 +59,6 @@ impl AnthropicTranslator {
 #[async_trait::async_trait]
 impl Translator for AnthropicTranslator {
     async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
-        let source_hint = match request.source_language {
-            Some(lang) => format!("The source language is {lang}.\n"),
-            None => String::new(),
-        };
-
         let response = self
             .client
             .post(format!("{}/v1/messages", self.base_url))
@@ -81,8 +76,7 @@ impl Translator for AnthropicTranslator {
                 messages: vec![Message {
                     role: "user",
                     content: format!(
-                        "Translate the following subtitle dialogue to {target_language}.\n\
-                         {source_hint}\n\
+                        "Translate the following subtitle dialogue to {target_language}.\n\n\
                          Preserve every numeric tag exactly, like <1>, <2>, <3>.\n\
                          Keep line breaks inside each subtitle when needed.\n\n\
                          Subtitle dialogue:\n\
@@ -185,7 +179,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
-                source_language: None,
             })
             .await
             .unwrap();
@@ -211,31 +204,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "en",
-                source_language: None,
-            })
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn sends_source_language_in_system_prompt() {
-        let server = MockServer::start().await;
-
-        Mock::given(method("POST"))
-            .and(path("/v1/messages"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(anthropic_response("<1> ok")))
-            .expect(1)
-            .mount(&server)
-            .await;
-
-        let translator =
-            AnthropicTranslator::with_base_url(server.uri(), "test-key", "claude-sonnet-4-6")
-                .unwrap();
-        translator
-            .translate(TranslationRequest {
-                source_text: "<1> test",
-                target_language: "de",
-                source_language: Some("ja"),
             })
             .await
             .unwrap();
@@ -259,7 +227,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
-                source_language: None,
             })
             .await
             .unwrap();
@@ -285,7 +252,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "en",
-                source_language: None,
             })
             .await
             .unwrap_err();
@@ -317,7 +283,6 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "en",
-                source_language: None,
             })
             .await
             .unwrap_err();

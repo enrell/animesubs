@@ -48,8 +48,4 @@ pub struct TranslationRequest<'a> {
     pub source_text: &'a str,
     /// Target language code (e.g. `"pt-BR"`, `"en"`, `"ja"`).
     pub target_language: &'a str,
-    /// Optional source language code (e.g. `"en"`, `"ja"`).
-    /// Providers that support it (DeepL, Google) pass it to the API.
-    /// LLM providers include it in the prompt when set.
-    pub source_language: Option<&'a str>,
 }
