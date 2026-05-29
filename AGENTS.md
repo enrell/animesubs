@@ -6,7 +6,7 @@ Guide for AI coding agents working on psyche-subtitle-toolkit.
 
 ```sh
 cargo check                                      # compilation check
-cargo test                                       # run all tests (96 unit + integration)
+cargo test                                       # run all tests (105 unit + integration)
 cargo clippy --all-targets --all-features -- -D warnings  # strict lint
 cargo build --release                            # release binary
 cargo run -- inspect <mkv>                       # inspect MKV tracks
@@ -20,7 +20,7 @@ All commands run from the project root.
 Rust crate + CLI that extracts ASS subtitles from MKV files, translates them via pluggable providers, and muxes the translation back in-place. Designed for Psyche but usable standalone.
 
 **Key constraints:**
-- ASS and SRT subtitle formats (no VTT yet)
+- ASS, SRT, and WebVTT subtitle formats
 - In-place MKV remuxing (replaces original track, does not append)
 - Sequential file processing (one MKV at a time)
 - Local-first: no telemetry, no cloud required, every provider is opt-in
@@ -42,6 +42,7 @@ src/
     ass.rs            # ASS parser + renderer (AssSubtitle)
     srt.rs            # SRT parser + renderer (SrtSubtitle)
     structured.rs     # numbered text format, tag stripping, chunking
+    vtt.rs            # WebVTT parser + renderer (VttSubtitle)
   translation/
     mod.rs            # Translator trait + TranslationRequest struct
     ollama.rs         # Ollama /api/generate provider
@@ -150,15 +151,15 @@ mod tests {
 
 ## Testing
 
-### Test Categories (96 tests total)
+### Test Categories (105 tests total)
 
 | Category | Count | Location | What they test |
 |---|---|---|---|
-| Subtitle parsing | 10 | `subtitles/ass.rs` + `subtitles/srt.rs` | ASS + SRT parse + render |
+| Subtitle parsing | 19 | `subtitles/ass.rs` + `subtitles/srt.rs` + `subtitles/vtt.rs` | ASS + SRT + VTT parse + render |
 | Structured text | 15 | `subtitles/structured.rs` | Numbered format, tag strip/reinject, chunking |
 | Pipeline integration | 22 | `pipeline.rs` | Full subtitle processing, retry, dry-run, resume, concurrency, race condition regression with FakeTranslator |
 | Provider mocks | 6-7 each | `translation/*.rs` | HTTP contracts per provider |
-| Doc-tests | 8 | `lib.rs` + provider files | Compile-check public examples |
+| Doc-tests | 12 | `lib.rs` + provider files | Compile-check public examples |
 
 ### Writing Provider Tests
 
