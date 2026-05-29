@@ -7,7 +7,9 @@ use crate::media::mkv::{
     discover_mkv_files, extract_subtitle, inspect_mkv, mux_subtitle_in_place, select_ass_track,
 };
 use crate::subtitles::ass::AssSubtitle;
-use crate::subtitles::structured::{apply_translation, parse_numbered_text, to_numbered_text};
+use crate::subtitles::structured::{
+    apply_translation, parse_numbered_text, reinject_tags, strip_tags, to_numbered_text,
+};
 use crate::translation::{TranslationRequest, Translator};
 
 #[derive(Debug, Clone)]
@@ -47,14 +49,10 @@ async fn translate_one<T: Translator>(
     extract_subtitle(&file, track.id, &extracted_path).await?;
 
     let source = tokio::fs::read_to_string(&extracted_path).await?;
-    let mut ass = AssSubtitle::parse(&source)?;
-    let numbered = to_numbered_text(ass.document());
-    let ids = ass
-        .document()
-        .cues
-        .iter()
-        .map(|cue| cue.id)
-        .collect::<Vec<_>>();
+    let ass = AssSubtitle::parse(&source)?;
+    let (mut clean_doc, tag_map) = strip_tags(ass.document());
+    let numbered = to_numbered_text(&clean_doc);
+    let ids = clean_doc.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
 
     let translated_text = translator
         .translate(TranslationRequest {
@@ -63,7 +61,11 @@ async fn translate_one<T: Translator>(
         })
         .await?;
     let parsed = parse_numbered_text(&translated_text, &ids)?;
-    apply_translation(ass.document_mut(), parsed);
+    apply_translation(&mut clean_doc, parsed);
+    reinject_tags(&mut clean_doc, &tag_map);
+
+    let mut ass = ass;
+    *ass.document_mut() = clean_doc;
 
     tokio::fs::write(&translated_path, ass.render()).await?;
     mux_subtitle_in_place(&file, track.id, &translated_path, &options.target_language).await?;
