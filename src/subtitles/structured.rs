@@ -201,6 +201,24 @@ pub fn chunk_document(document: &SubtitleDocument, max_chars: usize) -> Vec<Subt
     chunks
 }
 
+/// Split a document into chunks of at most `max_lines` cues each.
+///
+/// This is an alternative to [`chunk_document`] that chunks by line count
+/// instead of character count, which is more predictable for LLM token usage.
+pub fn chunk_document_by_lines(document: &SubtitleDocument, max_lines: usize) -> Vec<SubtitleDocument> {
+    if document.cues.is_empty() || max_lines == 0 {
+        return vec![];
+    }
+
+    document
+        .cues
+        .chunks(max_lines)
+        .map(|chunk| SubtitleDocument {
+            cues: chunk.to_vec(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

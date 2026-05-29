@@ -56,8 +56,8 @@ pub use pipeline::{TranslateMkvOptions, dry_run_summary, translate_ass, translat
 pub use subtitles::ass::AssSubtitle;
 pub use subtitles::model::{SubtitleCue, SubtitleDocument};
 pub use subtitles::structured::{
-    apply_translation, chunk_document, parse_numbered_text, reinject_tags, strip_tags,
-    to_numbered_text,
+    apply_translation, chunk_document, chunk_document_by_lines, parse_numbered_text,
+    reinject_tags, strip_tags, to_numbered_text,
 };
 
 // Translation

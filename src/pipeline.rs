@@ -10,7 +10,7 @@ use crate::media::mkv::{
 use crate::retry::retry_async;
 use crate::subtitles::ass::AssSubtitle;
 use crate::subtitles::structured::{
-    apply_translation, chunk_document, parse_numbered_text, reinject_tags, strip_tags,
+    apply_translation, chunk_document_by_lines, parse_numbered_text, reinject_tags, strip_tags,
     to_numbered_text,
 };
 use crate::translation::{TranslationRequest, Translator};
@@ -148,7 +148,7 @@ fn progress_file_path(input: &std::path::Path) -> PathBuf {
 /// Generate a dry-run summary for an ASS subtitle: cue count, char count, chunk count.
 pub fn dry_run_summary(ass: &AssSubtitle, target_language: &str) -> String {
     let (clean_doc, _) = strip_tags(ass.document());
-    let chunks = chunk_document(&clean_doc, 5000);
+    let chunks = chunk_document_by_lines(&clean_doc, 200);
     let cue_count = clean_doc.cues.len();
     let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
     format!(
@@ -179,7 +179,7 @@ pub async fn translate_ass<T: Translator + ?Sized>(
 ) -> Result<AssSubtitle> {
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
 
-    let chunks = chunk_document(&clean_doc, 5000);
+    let chunks = chunk_document_by_lines(&clean_doc, 200);
     let chunk_count = chunks.len();
     let cue_count = clean_doc.cues.len();
     let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
@@ -414,8 +414,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
 
     #[tokio::test]
     async fn pipeline_chunks_large_documents() {
-        // Build an ASS with 100 cues. Each numbered line is ~60 chars,
-        // so 100 lines ≈ 6000 chars — exceeds the 5000-char chunk limit.
+        // Build an ASS with 300 cues to force multiple chunks at 200 lines/chunk.
         let mut lines = vec![
             "[Script Info]".to_string(),
             "Title: Big".to_string(),
@@ -430,44 +429,43 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
                 .to_string(),
         ];
 
-        for i in 1..=100 {
-            let text = format!("This is subtitle line number {i} with enough text to fill space");
+        for i in 1..=300 {
             lines.push(format!(
-                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,{}",
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,subtitle line {i}",
                 i, i + 1,
-                text
             ));
         }
 
         let ass_content = lines.join("\n");
 
-        // First, verify chunking actually splits at 5000 chars
+        // Verify chunking splits at 200 lines
         let ass = AssSubtitle::parse(&ass_content).unwrap();
         let (clean_doc, _) = crate::subtitles::structured::strip_tags(ass.document());
-        let chunks = crate::subtitles::structured::chunk_document(&clean_doc, 5000);
-        assert!(chunks.len() > 1, "100 cues should produce multiple chunks at 5000 chars");
+        let chunks = crate::subtitles::structured::chunk_document_by_lines(&clean_doc, 200);
+        assert_eq!(chunks.len(), 2, "300 cues should produce 2 chunks at 200 lines");
+        assert_eq!(chunks[0].cues.len(), 200);
+        assert_eq!(chunks[1].cues.len(), 100);
 
-        // Build a FakeTranslator that replaces "subtitle line" → "linha de legenda"
-        // for any input. This works regardless of how the text is chunked.
+        // Build a FakeTranslator (identity translation)
         let translator = FakeTranslator::new(std::collections::HashMap::new());
 
         let ass = AssSubtitle::parse(&ass_content).unwrap();
         let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
         let rendered = result.render();
 
-        // All 100 cues should be present (identity translation)
-        for i in 1..=100 {
+        // All 300 cues should be present
+        for i in 1..=300 {
             assert!(
-                rendered.contains(&format!("subtitle line number {i}")),
+                rendered.contains(&format!("subtitle line {i}")),
                 "missing cue {i} in rendered output"
             );
         }
 
-        // Translator was called multiple times (multiple chunks)
+        // Translator was called twice (2 chunks)
         let texts = translator.received_texts();
-        assert!(texts.len() > 1, "expected multiple chunk calls, got {}", texts.len());
+        assert_eq!(texts.len(), 2);
 
-        // All 100 cue IDs accounted for across all calls
+        // All 300 cue IDs accounted for across all calls
         let mut all_ids: Vec<usize> = Vec::new();
         for text in &texts {
             for line in text.lines() {
@@ -480,7 +478,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
             }
         }
         all_ids.sort();
-        assert_eq!(all_ids, (1..=100).collect::<Vec<_>>());
+        assert_eq!(all_ids, (1..=300).collect::<Vec<_>>());
     }
 
     #[tokio::test]
@@ -637,7 +635,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
                 .to_string(),
         ];
-        for i in 1..=100 {
+        for i in 1..=300 {
             lines.push(format!(
                 "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,This is subtitle line number {i} with enough text to fill space",
                 i, i + 1,
@@ -646,10 +644,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
         let summary = dry_run_summary(&ass, "pt-BR");
 
-        assert!(summary.contains("100 cues"), "expected '100 cues' in: {summary}");
+        assert!(summary.contains("300 cues"), "expected '300 cues' in: {summary}");
         assert!(
-            summary.contains("2 chunk(s)") || summary.contains("3 chunk(s)"),
-            "expected multiple chunks in: {summary}"
+            summary.contains("2 chunk(s)"),
+            "expected '2 chunk(s)' in: {summary}"
         );
     }
 
