@@ -43,7 +43,6 @@ impl MkvTrack {
             && self.codec.as_deref().is_some_and(|codec| {
                 codec.eq_ignore_ascii_case("SubStationAlpha")
                     || codec.eq_ignore_ascii_case("AdvancedSubStationAlpha")
-                    || codec.to_ascii_lowercase().contains("substation")
             })
     }
 }

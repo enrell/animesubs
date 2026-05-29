@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use psyche_subtitle_toolkit::media::mkv::{inspect_mkv, select_ass_track};
 use psyche_subtitle_toolkit::pipeline::{TranslateMkvOptions, translate_mkv};
+use psyche_subtitle_toolkit::translation::Translator;
+use psyche_subtitle_toolkit::translation::deepl::DeepLTranslator;
 use psyche_subtitle_toolkit::translation::ollama::OllamaTranslator;
+use psyche_subtitle_toolkit::translation::openai::OpenAiTranslator;
 
 #[derive(Debug, Parser)]
 #[command(name = "psyche-subtitle-toolkit")]
@@ -25,6 +28,9 @@ enum Command {
         #[arg(long)]
         to: String,
 
+        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, deepl")]
+        provider: String,
+
         #[arg(long)]
         track: Option<u64>,
 
@@ -33,6 +39,12 @@ enum Command {
 
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
+
+        #[arg(long, help = "API key (required for openai and deepl providers)")]
+        api_key: Option<String>,
+
+        #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
+        deepl_url: String,
 
         #[arg(long)]
         keep_temp: bool,
@@ -48,12 +60,43 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
         Command::Translate {
             input,
             to,
+            provider,
             track,
             model,
             ollama_url,
+            api_key,
+            deepl_url,
             keep_temp,
         } => {
-            let translator = OllamaTranslator::with_base_url(ollama_url, model);
+            let translator: Box<dyn Translator> = match provider.as_str() {
+                "ollama" => Box::new(OllamaTranslator::with_base_url(ollama_url, model)?),
+                "openai" => {
+                    let key = api_key.ok_or_else(|| {
+                        psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                            provider: "openai",
+                            message: "--api-key is required for the openai provider".into(),
+                        }
+                    })?;
+                    Box::new(OpenAiTranslator::new(key, model)?)
+                }
+                "deepl" => {
+                    let key = api_key.ok_or_else(|| {
+                        psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                            provider: "deepl",
+                            message: "--api-key is required for the deepl provider".into(),
+                        }
+                    })?;
+                    Box::new(DeepLTranslator::with_base_url(deepl_url, key)?)
+                }
+                unknown => {
+                    return Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                        provider: "cli",
+                        message: format!(
+                            "unknown provider `{unknown}`, supported: ollama, openai, deepl"
+                        ),
+                    });
+                }
+            };
             translate_mkv(
                 TranslateMkvOptions {
                     input,
@@ -61,7 +104,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     track_id: track,
                     keep_temp,
                 },
-                &translator,
+                &*translator,
             )
             .await
         }

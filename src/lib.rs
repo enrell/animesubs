@@ -10,7 +10,7 @@
 //! use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator};
 //!
 //! # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-//! let translator = OllamaTranslator::new("llama3.1");
+//! let translator = OllamaTranslator::new("llama3.1")?;
 //! translate_mkv(
 //!     TranslateMkvOptions {
 //!         input: "/media/anime/episode.mkv".into(),
@@ -57,5 +57,7 @@ pub use subtitles::structured::{
 };
 
 // Translation
+pub use translation::deepl::DeepLTranslator;
 pub use translation::ollama::OllamaTranslator;
+pub use translation::openai::OpenAiTranslator;
 pub use translation::{TranslationRequest, Translator};

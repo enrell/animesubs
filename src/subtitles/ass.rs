@@ -98,18 +98,22 @@ impl AssSubtitle {
     /// Dialogue lines use the current text from the document; all other
     /// content (headers, styles, comments) is written as-is.
     pub fn render(&self) -> String {
+        let cue_map: std::collections::HashMap<usize, &str> = self
+            .document
+            .cues
+            .iter()
+            .map(|cue| (cue.id, cue.text.as_str()))
+            .collect();
+
         let mut rendered = Vec::with_capacity(self.lines.len());
 
         for line in &self.lines {
             match line {
                 AssLine::Raw(raw) => rendered.push(raw.clone()),
                 AssLine::Dialogue { id, dialogue } => {
-                    let text = self
-                        .document
-                        .cues
-                        .iter()
-                        .find(|cue| cue.id == *id)
-                        .map(|cue| encode_ass_text(&cue.text))
+                    let text = cue_map
+                        .get(id)
+                        .map(|t| encode_ass_text(t))
                         .unwrap_or_else(|| dialogue.text.clone());
                     rendered.push(dialogue.render(&text));
                 }

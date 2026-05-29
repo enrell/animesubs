@@ -39,7 +39,7 @@ pub struct TranslateMkvOptions {
 /// 7. Muxes the translated subtitle into the MKV (replacing the original track)
 ///
 /// If `input` is a directory, processes all `.mkv` files sequentially.
-pub async fn translate_mkv<T: Translator>(
+pub async fn translate_mkv<T: Translator + ?Sized>(
     options: TranslateMkvOptions,
     translator: &T,
 ) -> Result<()> {
@@ -52,7 +52,7 @@ pub async fn translate_mkv<T: Translator>(
     Ok(())
 }
 
-async fn translate_one<T: Translator>(
+async fn translate_one<T: Translator + ?Sized>(
     file: PathBuf,
     options: &TranslateMkvOptions,
     translator: &T,

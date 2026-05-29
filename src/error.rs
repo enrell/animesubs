@@ -44,9 +44,12 @@ pub enum SubtitleToolkitError {
     #[error("translation response is invalid: {message}")]
     InvalidTranslation { message: String },
 
-    /// Ollama API returned an error response.
-    #[error("Ollama error: {message}")]
-    Ollama { message: String },
+    /// Translation provider returned an error.
+    #[error("{provider} error: {message}")]
+    Translation {
+        provider: &'static str,
+        message: String,
+    },
 }
 
 /// Convenience alias for `Result<T, SubtitleToolkitError>`.
