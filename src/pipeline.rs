@@ -69,6 +69,7 @@ async fn translate_one<T: Translator + ?Sized>(
     let extracted_path = temp_dir.path().join("source.ass");
     let translated_path = temp_dir.path().join("translated.ass");
 
+    eprintln!("[translate] {}", file.display());
     extract_subtitle(&file, track.id, &extracted_path).await?;
 
     let source = tokio::fs::read_to_string(&extracted_path).await?;
@@ -98,8 +99,10 @@ async fn translate_one<T: Translator + ?Sized>(
     )
     .await?;
 
+    eprintln!("[translate] muxing translated subtitle");
     tokio::fs::write(&translated_path, translated_ass.render()).await?;
     mux_subtitle_in_place(&file, track.id, &translated_path, &options.target_language).await?;
+    eprintln!("[translate] done: {}", file.display());
 
     if options.keep_temp {
         let persisted = file.with_extension("psyche-subtitle-toolkit-temp");
@@ -131,9 +134,27 @@ pub async fn translate_ass<T: Translator + ?Sized>(
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
 
     let chunks = chunk_document(&clean_doc, 5000);
+    let chunk_count = chunks.len();
+    let cue_count = clean_doc.cues.len();
+    let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
+    eprintln!(
+        "[translate] {} cues, {} chars, {} chunk(s)",
+        cue_count, total_chars, chunk_count,
+    );
+
     let mut all_translated = BTreeMap::new();
 
-    for chunk in &chunks {
+    for (i, chunk) in chunks.iter().enumerate() {
+        if chunk_count > 1 {
+            let chunk_chars: usize = chunk.cues.iter().map(|c| c.text.len()).sum();
+            eprintln!(
+                "[translate] chunk {}/{}: {} cues, {} chars",
+                i + 1,
+                chunk_count,
+                chunk.cues.len(),
+                chunk_chars,
+            );
+        }
         let numbered = to_numbered_text(chunk);
         let ids = chunk.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
 
