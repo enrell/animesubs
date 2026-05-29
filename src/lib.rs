@@ -17,6 +17,7 @@
 //!         target_language: "pt-BR".into(),
 //!         track_id: None,
 //!         keep_temp: false,
+//!         dry_run: false,
 //!     },
 //!     &translator,
 //! ).await?;
@@ -46,7 +47,7 @@ pub use error::{Result, SubtitleToolkitError};
 pub use media::mkv::{MkvInfo, MkvTrack, MkvTrackProperties, inspect_mkv, select_ass_track};
 
 // Pipeline
-pub use pipeline::{TranslateMkvOptions, translate_mkv};
+pub use pipeline::{TranslateMkvOptions, translate_ass, translate_mkv};
 
 // Subtitle model
 pub use subtitles::ass::AssSubtitle;
@@ -58,6 +59,9 @@ pub use subtitles::structured::{
 
 // Translation
 pub use translation::deepl::DeepLTranslator;
+pub use translation::gemini::GeminiTranslator;
+pub use translation::google::GoogleTranslator;
 pub use translation::ollama::OllamaTranslator;
 pub use translation::openai::OpenAiTranslator;
+pub use translation::openrouter::OpenRouterTranslator;
 pub use translation::{TranslationRequest, Translator};

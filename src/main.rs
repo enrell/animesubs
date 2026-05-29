@@ -5,8 +5,11 @@ use psyche_subtitle_toolkit::media::mkv::{inspect_mkv, select_ass_track};
 use psyche_subtitle_toolkit::pipeline::{TranslateMkvOptions, translate_mkv};
 use psyche_subtitle_toolkit::translation::Translator;
 use psyche_subtitle_toolkit::translation::deepl::DeepLTranslator;
+use psyche_subtitle_toolkit::translation::gemini::GeminiTranslator;
+use psyche_subtitle_toolkit::translation::google::GoogleTranslator;
 use psyche_subtitle_toolkit::translation::ollama::OllamaTranslator;
 use psyche_subtitle_toolkit::translation::openai::OpenAiTranslator;
+use psyche_subtitle_toolkit::translation::openrouter::OpenRouterTranslator;
 
 #[derive(Debug, Parser)]
 #[command(name = "psyche-subtitle-toolkit")]
@@ -28,7 +31,7 @@ enum Command {
         #[arg(long)]
         to: String,
 
-        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, deepl")]
+        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, deepl, google, gemini")]
         provider: String,
 
         #[arg(long)]
@@ -40,7 +43,7 @@ enum Command {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
 
-        #[arg(long, help = "API key (required for openai and deepl providers)")]
+        #[arg(long, help = "API key (required for openai, openrouter, deepl, google, and gemini providers)")]
         api_key: Option<String>,
 
         #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
@@ -48,6 +51,9 @@ enum Command {
 
         #[arg(long)]
         keep_temp: bool,
+
+        #[arg(long, help = "Show what would be translated without modifying files")]
+        dry_run: bool,
     },
 }
 
@@ -67,6 +73,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             api_key,
             deepl_url,
             keep_temp,
+            dry_run,
         } => {
             let translator: Box<dyn Translator> = match provider.as_str() {
                 "ollama" => Box::new(OllamaTranslator::with_base_url(ollama_url, model)?),
@@ -88,11 +95,38 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     })?;
                     Box::new(DeepLTranslator::with_base_url(deepl_url, key)?)
                 }
+                "google" => {
+                    let key = api_key.ok_or_else(|| {
+                        psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                            provider: "google",
+                            message: "--api-key is required for the google provider".into(),
+                        }
+                    })?;
+                    Box::new(GoogleTranslator::new(key)?)
+                }
+                "gemini" => {
+                    let key = api_key.ok_or_else(|| {
+                        psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                            provider: "gemini",
+                            message: "--api-key is required for the gemini provider".into(),
+                        }
+                    })?;
+                    Box::new(GeminiTranslator::new(key, model)?)
+                }
+                "openrouter" => {
+                    let key = api_key.ok_or_else(|| {
+                        psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                            provider: "openrouter",
+                            message: "--api-key is required for the openrouter provider".into(),
+                        }
+                    })?;
+                    Box::new(OpenRouterTranslator::new(key, model)?)
+                }
                 unknown => {
                     return Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
                         provider: "cli",
                         message: format!(
-                            "unknown provider `{unknown}`, supported: ollama, openai, deepl"
+                            "unknown provider `{unknown}`, supported: ollama, openai, openrouter, deepl, google, gemini"
                         ),
                     });
                 }
@@ -103,6 +137,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     target_language: to,
                     track_id: track,
                     keep_temp,
+                    dry_run,
                 },
                 &*translator,
             )
