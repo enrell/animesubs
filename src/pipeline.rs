@@ -7,6 +7,7 @@ use crate::error::{Result, SubtitleToolkitError};
 use crate::media::mkv::{
     discover_mkv_files, extract_subtitle, inspect_mkv, mux_subtitle_in_place, select_ass_track,
 };
+use crate::retry::retry_async;
 use crate::subtitles::ass::AssSubtitle;
 use crate::subtitles::structured::{
     apply_translation, chunk_document, parse_numbered_text, reinject_tags, strip_tags,
@@ -158,13 +159,15 @@ pub async fn translate_ass<T: Translator + ?Sized>(
         let numbered = to_numbered_text(chunk);
         let ids = chunk.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
 
-        let translated_text = translator
-            .translate(TranslationRequest {
-                source_text: &numbered,
+        let numbered_ref = &numbered;
+        let translated_text = retry_async(3, || {
+            translator.translate(TranslationRequest {
+                source_text: numbered_ref,
                 target_language,
                 source_language,
             })
-            .await?;
+        })
+        .await?;
         let parsed = parse_numbered_text(&translated_text, &ids)?;
         all_translated.extend(parsed);
     }

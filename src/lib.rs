@@ -38,6 +38,7 @@
 pub mod error;
 pub mod media;
 pub mod pipeline;
+mod retry;
 pub mod subtitles;
 pub mod translation;
 
