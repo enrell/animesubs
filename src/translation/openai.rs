@@ -7,7 +7,7 @@ use super::{TranslationRequest, Translator};
 /// Translator backend that calls the [OpenAI](https://platform.openai.com) `/v1/chat/completions` endpoint.
 ///
 /// Compatible with any OpenAI-compatible API (OpenAI, Azure OpenAI, local proxies, etc.)
-/// by setting a custom base URL via [`with_base_url`].
+/// by setting a custom base URL via [`OpenAiTranslator::with_base_url`].
 ///
 /// # Example
 ///

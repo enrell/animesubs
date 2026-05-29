@@ -1,9 +1,16 @@
+/// Anthropic Messages API provider (`/v1/messages`).
 pub mod anthropic;
+/// DeepL Translation API provider (`/v2/translate`).
 pub mod deepl;
+/// Google Gemini `generateContent` provider.
 pub mod gemini;
+/// Google Cloud Translation v2 provider (`/language/translate/v2`).
 pub mod google;
+/// Ollama local LLM provider (`/api/generate`).
 pub mod ollama;
+/// OpenAI Chat Completions provider (`/v1/chat/completions`).
 pub mod openai;
+/// OpenRouter unified LLM provider (`/api/v1/chat/completions`).
 pub mod openrouter;
 
 use async_trait::async_trait;
