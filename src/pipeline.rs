@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use tempfile::tempdir;
@@ -8,7 +9,8 @@ use crate::media::mkv::{
 };
 use crate::subtitles::ass::AssSubtitle;
 use crate::subtitles::structured::{
-    apply_translation, parse_numbered_text, reinject_tags, strip_tags, to_numbered_text,
+    apply_translation, chunk_document, parse_numbered_text, reinject_tags, strip_tags,
+    to_numbered_text,
 };
 use crate::translation::{TranslationRequest, Translator};
 
@@ -51,17 +53,25 @@ async fn translate_one<T: Translator>(
     let source = tokio::fs::read_to_string(&extracted_path).await?;
     let ass = AssSubtitle::parse(&source)?;
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
-    let numbered = to_numbered_text(&clean_doc);
-    let ids = clean_doc.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
 
-    let translated_text = translator
-        .translate(TranslationRequest {
-            source_text: &numbered,
-            target_language: &options.target_language,
-        })
-        .await?;
-    let parsed = parse_numbered_text(&translated_text, &ids)?;
-    apply_translation(&mut clean_doc, parsed);
+    let chunks = chunk_document(&clean_doc, 5000);
+    let mut all_translated = BTreeMap::new();
+
+    for chunk in &chunks {
+        let numbered = to_numbered_text(chunk);
+        let ids = chunk.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
+
+        let translated_text = translator
+            .translate(TranslationRequest {
+                source_text: &numbered,
+                target_language: &options.target_language,
+            })
+            .await?;
+        let parsed = parse_numbered_text(&translated_text, &ids)?;
+        all_translated.extend(parsed);
+    }
+
+    apply_translation(&mut clean_doc, all_translated);
     reinject_tags(&mut clean_doc, &tag_map);
 
     let mut ass = ass;

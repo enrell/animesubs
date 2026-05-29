@@ -145,6 +145,40 @@ pub fn reinject_tags(document: &mut SubtitleDocument, tag_map: &HashMap<usize, S
     }
 }
 
+pub fn chunk_document(document: &SubtitleDocument, max_chars: usize) -> Vec<SubtitleDocument> {
+    if document.cues.is_empty() {
+        return vec![];
+    }
+
+    let mut chunks = Vec::new();
+    let mut current_cues = Vec::new();
+    let mut current_chars = 0;
+
+    for cue in &document.cues {
+        let line_chars = format!("<{}> {}", cue.id, cue.text.replace('\n', "\\N")).len();
+
+        if !current_cues.is_empty() && current_chars + 1 + line_chars > max_chars {
+            chunks.push(SubtitleDocument {
+                cues: std::mem::take(&mut current_cues),
+            });
+            current_chars = 0;
+        }
+
+        current_chars += if current_cues.is_empty() {
+            line_chars
+        } else {
+            1 + line_chars
+        };
+        current_cues.push(cue.clone());
+    }
+
+    if !current_cues.is_empty() {
+        chunks.push(SubtitleDocument { cues: current_cues });
+    }
+
+    chunks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +308,83 @@ mod tests {
         let (clean, _) = strip_tags(&document);
         let numbered = to_numbered_text(&clean);
         assert_eq!(numbered, "<1> STATUS\n<2> Hello");
+    }
+
+    #[test]
+    fn chunk_document_splits_when_needed() {
+        let document = SubtitleDocument {
+            cues: (1..=10)
+                .map(|i| SubtitleCue {
+                    id: i,
+                    text: format!("line {i}"),
+                })
+                .collect(),
+        };
+
+        // Each line is ~11 chars ("<N> line N"), total ~120 chars
+        // With limit 50, should split into multiple chunks
+        let chunks = chunk_document(&document, 50);
+        assert!(chunks.len() > 1);
+
+        // All cues preserved across chunks
+        let total_cues: usize = chunks.iter().map(|c| c.cues.len()).sum();
+        assert_eq!(total_cues, 10);
+
+        // IDs preserved
+        let all_ids: Vec<usize> = chunks
+            .iter()
+            .flat_map(|c| c.cues.iter().map(|cue| cue.id))
+            .collect();
+        assert_eq!(all_ids, (1..=10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn chunk_document_single_chunk_when_fits() {
+        let document = SubtitleDocument {
+            cues: vec![
+                SubtitleCue {
+                    id: 1,
+                    text: "hello".into(),
+                },
+                SubtitleCue {
+                    id: 2,
+                    text: "world".into(),
+                },
+            ],
+        };
+
+        let chunks = chunk_document(&document, 10000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].cues.len(), 2);
+    }
+
+    #[test]
+    fn chunk_document_oversized_cue_gets_own_chunk() {
+        let big_text = "x".repeat(200);
+        let document = SubtitleDocument {
+            cues: vec![
+                SubtitleCue {
+                    id: 1,
+                    text: big_text.clone(),
+                },
+                SubtitleCue {
+                    id: 2,
+                    text: "small".into(),
+                },
+            ],
+        };
+
+        let chunks = chunk_document(&document, 50);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].cues[0].id, 1);
+        assert_eq!(chunks[0].cues[0].text, big_text);
+        assert_eq!(chunks[1].cues[0].id, 2);
+    }
+
+    #[test]
+    fn chunk_document_empty() {
+        let document = SubtitleDocument { cues: vec![] };
+        let chunks = chunk_document(&document, 5000);
+        assert!(chunks.is_empty());
     }
 }
