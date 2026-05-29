@@ -14,6 +14,7 @@ use crate::retry::retry_async;
 use crate::subtitles::ass::AssSubtitle;
 use crate::subtitles::model::SubtitleDocument;
 use crate::subtitles::srt::SrtSubtitle;
+use crate::subtitles::vtt::VttSubtitle;
 use crate::subtitles::structured::{
     apply_translation, chunk_document_by_lines, parse_numbered_text, reinject_tags, strip_tags,
     to_numbered_text,
@@ -105,16 +106,19 @@ async fn translate_one(
     let ext = match format {
         SubtitleFormat::Ass => "ass",
         SubtitleFormat::Srt => "srt",
+        SubtitleFormat::Vtt => "vtt",
     };
 
     let temp_dir = tempdir()?;
     let extracted_path = temp_dir.path().join(format!("source.{ext}"));
     let translated_path = temp_dir.path().join(format!("translated.{ext}"));
 
-    eprintln!("[translate] {} ({})", file.display(), match format {
+    let format_label = match format {
         SubtitleFormat::Ass => "ASS",
         SubtitleFormat::Srt => "SRT",
-    });
+        SubtitleFormat::Vtt => "VTT",
+    };
+    eprintln!("[translate] {} ({})", file.display(), format_label);
     extract_subtitle(&file, track.id, &extracted_path).await?;
 
     let source = tokio::fs::read_to_string(&extracted_path).await?;
@@ -146,6 +150,23 @@ async fn translate_one(
             }
             translate_srt(
                 srt,
+                &options.target_language,
+                options.source_language.as_deref(),
+                options.max_concurrent,
+                translator,
+            )
+            .await?
+            .render()
+        }
+        SubtitleFormat::Vtt => {
+            let vtt = VttSubtitle::parse(&source)?;
+            if options.dry_run {
+                let summary = dry_run_summary(vtt.document(), &options.target_language);
+                println!("[dry-run] {}: {}", file.display(), summary);
+                return Ok(());
+            }
+            translate_vtt(
+                vtt,
                 &options.target_language,
                 options.source_language.as_deref(),
                 options.max_concurrent,
@@ -248,7 +269,34 @@ pub async fn translate_srt(
     Ok(srt)
 }
 
-/// Core translation logic shared by ASS and SRT pipelines.
+/// Translate a WebVTT subtitle through the processing pipeline.
+///
+/// 1. Chunks cues into 200-line batches
+/// 2. Translates each chunk via the provided [`Translator`]
+/// 3. Applies translated text back to the document
+///
+/// Returns the translated [`VttSubtitle`]. Use [`VttSubtitle::render`] to get
+/// the final WebVTT string.
+pub async fn translate_vtt(
+    mut vtt: VttSubtitle,
+    target_language: &str,
+    source_language: Option<&str>,
+    max_concurrent: usize,
+    translator: Arc<dyn Translator>,
+) -> Result<VttSubtitle> {
+    let clean_doc = translate_document(
+        vtt.document().clone(),
+        target_language,
+        source_language,
+        max_concurrent,
+        translator,
+    )
+    .await?;
+    *vtt.document_mut() = clean_doc;
+    Ok(vtt)
+}
+
+/// Core translation logic shared by ASS, SRT, and VTT pipelines.
 async fn translate_document(
     mut doc: SubtitleDocument,
     target_language: &str,

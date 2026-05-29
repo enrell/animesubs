@@ -133,10 +133,23 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             let source = tokio::fs::read_to_string(&input).await?;
 
             // Detect format: extension first, then content
-            let is_srt = input.extension().is_some_and(|e| e.eq_ignore_ascii_case("srt"))
-                || (!source.trim_start().starts_with('[') && source.contains("-->"));
+            let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let is_vtt = ext.eq_ignore_ascii_case("vtt") || source.trim_start().starts_with("WEBVTT");
+            let is_srt = !is_vtt && (ext.eq_ignore_ascii_case("srt")
+                || (!source.trim_start().starts_with('[') && source.contains("-->")));
 
-            if is_srt {
+            if is_vtt {
+                let vtt = psyche_subtitle_toolkit::VttSubtitle::parse(&source)?;
+                let translated = psyche_subtitle_toolkit::translate_vtt(
+                    vtt,
+                    &to,
+                    source_lang.as_deref(),
+                    1,
+                    translator,
+                )
+                .await?;
+                tokio::fs::write(&output, translated.render()).await?;
+            } else if is_srt {
                 let srt = psyche_subtitle_toolkit::SrtSubtitle::parse(&source)?;
                 let translated = psyche_subtitle_toolkit::translate_srt(
                     srt,

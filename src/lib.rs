@@ -115,11 +115,15 @@ pub use media::mkv::{
 };
 
 // Pipeline
-pub use pipeline::{TranslateMkvOptions, dry_run_summary, translate_ass, translate_mkv, translate_srt};
+pub use pipeline::{
+    TranslateMkvOptions, dry_run_summary, translate_ass, translate_mkv, translate_srt,
+    translate_vtt,
+};
 
 // Subtitle model
 pub use subtitles::ass::AssSubtitle;
 pub use subtitles::srt::SrtSubtitle;
+pub use subtitles::vtt::VttSubtitle;
 pub use subtitles::model::{SubtitleCue, SubtitleDocument};
 pub use subtitles::structured::{
     apply_translation, chunk_document, chunk_document_by_lines, parse_numbered_text,

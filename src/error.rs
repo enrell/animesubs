@@ -48,6 +48,10 @@ pub enum SubtitleToolkitError {
     #[error("SRT parse error: {message}")]
     SrtParse { message: String },
 
+    /// Malformed WebVTT subtitle file.
+    #[error("WebVTT parse error: {message}")]
+    VttParse { message: String },
+
     /// LLM returned invalid numbered text (missing IDs, duplicates, etc.).
     #[error("translation response is invalid: {message}")]
     InvalidTranslation { message: String },

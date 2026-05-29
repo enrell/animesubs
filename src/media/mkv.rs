@@ -43,6 +43,8 @@ pub enum SubtitleFormat {
     Ass,
     /// SRT (SubRip) subtitle format.
     Srt,
+    /// WebVTT subtitle format.
+    Vtt,
 }
 
 impl MkvTrack {
@@ -65,12 +67,23 @@ impl MkvTrack {
             })
     }
 
+    /// Returns `true` if this track is a WebVTT subtitle.
+    pub fn is_vtt_subtitle(&self) -> bool {
+        self.track_type == "subtitles"
+            && self.codec.as_deref().is_some_and(|codec| {
+                codec.eq_ignore_ascii_case("WebVTT")
+                    || codec.eq_ignore_ascii_case("VTT")
+            })
+    }
+
     /// Returns the subtitle format if this track is a supported subtitle.
     pub fn subtitle_format(&self) -> Option<SubtitleFormat> {
         if self.is_ass_subtitle() {
             Some(SubtitleFormat::Ass)
         } else if self.is_srt_subtitle() {
             Some(SubtitleFormat::Srt)
+        } else if self.is_vtt_subtitle() {
+            Some(SubtitleFormat::Vtt)
         } else {
             None
         }
@@ -132,9 +145,9 @@ pub fn select_ass_track(info: &MkvInfo, requested_track: Option<u64>) -> Option<
     info.tracks.iter().find(|track| track.is_ass_subtitle())
 }
 
-/// Select the first supported subtitle track (ASS or SRT), or a specific track by ID.
+/// Select the first supported subtitle track (ASS, SRT, or VTT), or a specific track by ID.
 ///
-/// Returns the track and its detected format. Prefers ASS over SRT when both exist.
+/// Returns the track and its detected format. Prefers ASS > SRT > VTT when multiple exist.
 /// Returns `None` if no matching subtitle track is found.
 pub fn select_subtitle_track(
     info: &MkvInfo,
@@ -146,15 +159,19 @@ pub fn select_subtitle_track(
         return Some((track, format));
     }
 
-    // Prefer ASS over SRT
+    // Prefer ASS > SRT > VTT
     if let Some(track) = info.tracks.iter().find(|t| t.is_ass_subtitle()) {
         return Some((track, SubtitleFormat::Ass));
     }
 
+    if let Some(track) = info.tracks.iter().find(|t| t.is_srt_subtitle()) {
+        return Some((track, SubtitleFormat::Srt));
+    }
+
     info.tracks
         .iter()
-        .find(|t| t.is_srt_subtitle())
-        .map(|track| (track, SubtitleFormat::Srt))
+        .find(|t| t.is_vtt_subtitle())
+        .map(|track| (track, SubtitleFormat::Vtt))
 }
 
 /// Extract a subtitle track from an MKV file.
