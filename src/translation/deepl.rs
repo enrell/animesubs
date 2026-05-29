@@ -243,4 +243,30 @@ mod tests {
 
         assert!(err.to_string().contains("no translations"));
     }
+
+    #[tokio::test]
+    async fn sends_source_lang_when_provided() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v2/translate"))
+            .and(wiremock::matchers::body_string_contains(r#""source_lang":"JA"#))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "translations": [{ "text": "<1> Olá" }]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let translator = DeepLTranslator::with_base_url(server.uri(), "test-key").unwrap();
+        translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello",
+                target_language: "pt-BR",
+                source_language: Some("ja"),
+            })
+            .await
+            .unwrap();
+    }
+
 }

@@ -77,18 +77,8 @@ async fn translate_one<T: Translator + ?Sized>(
     let ass = AssSubtitle::parse(&source)?;
 
     if options.dry_run {
-        let (clean_doc, _) = strip_tags(ass.document());
-        let chunks = chunk_document(&clean_doc, 5000);
-        let cue_count = clean_doc.cues.len();
-        let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
-        println!(
-            "[dry-run] {}: {} cues, {} chars, {} chunk(s) → {}",
-            file.display(),
-            cue_count,
-            total_chars,
-            chunks.len(),
-            options.target_language,
-        );
+        let summary = dry_run_summary(&ass, &options.target_language);
+        println!("[dry-run] {}: {}", file.display(), summary);
         return Ok(());
     }
 
@@ -113,6 +103,21 @@ async fn translate_one<T: Translator + ?Sized>(
     }
 
     Ok(())
+}
+
+/// Generate a dry-run summary for an ASS subtitle: cue count, char count, chunk count.
+pub fn dry_run_summary(ass: &AssSubtitle, target_language: &str) -> String {
+    let (clean_doc, _) = strip_tags(ass.document());
+    let chunks = chunk_document(&clean_doc, 5000);
+    let cue_count = clean_doc.cues.len();
+    let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
+    format!(
+        "{} cues, {} chars, {} chunk(s) → {}",
+        cue_count,
+        total_chars,
+        chunks.len(),
+        target_language,
+    )
 }
 
 /// Translate an ASS subtitle through the full processing pipeline.
@@ -466,5 +471,116 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
 
         assert!(rendered.contains("Primeira linha"));
         assert!(rendered.contains("Segunda linha"));
+    }
+
+    #[tokio::test]
+    async fn pipeline_passes_source_language_to_translator() {
+        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
+
+        let mut responses = std::collections::HashMap::new();
+        responses.insert(
+            "<1> Hello world\n<2> Goodbye world".to_string(),
+            "<1> translated1\n<2> translated2".to_string(),
+        );
+
+        let translator = FakeTranslator::new(responses);
+        translate_ass(ass, "pt-BR", Some("en"), &translator)
+            .await
+            .unwrap();
+
+        // Verify the translator was called (source_language flows through without breaking)
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn pipeline_works_with_source_language_none() {
+        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
+
+        let mut responses = std::collections::HashMap::new();
+        responses.insert(
+            "<1> Hello world\n<2> Goodbye world".to_string(),
+            "<1> translated1\n<2> translated2".to_string(),
+        );
+
+        let translator = FakeTranslator::new(responses);
+        translate_ass(ass, "pt-BR", None, &translator)
+            .await
+            .unwrap();
+
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 1);
+    }
+
+    #[test]
+    fn dry_run_summary_reports_cues_chars_chunks() {
+        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
+        let summary = dry_run_summary(&ass, "pt-BR");
+
+        assert!(summary.contains("2 cues"), "expected '2 cues' in: {summary}");
+        assert!(summary.contains("1 chunk(s)"), "expected '1 chunk(s)' in: {summary}");
+        assert!(summary.contains("→ pt-BR"), "expected '→ pt-BR' in: {summary}");
+    }
+
+    #[test]
+    fn dry_run_summary_counts_chars() {
+        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
+        let summary = dry_run_summary(&ass, "en");
+
+        // "Hello world" = 11 chars, "Goodbye world" = 13 chars = 24 total
+        assert!(summary.contains("24 chars"), "expected '24 chars' in: {summary}");
+    }
+
+    #[test]
+    fn dry_run_summary_handles_empty_document() {
+        let ass_content = r"[Script Info]
+Title: Empty
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize
+Style: Default,Arial,20
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+";
+        let ass = AssSubtitle::parse(ass_content).unwrap();
+        let summary = dry_run_summary(&ass, "de");
+
+        assert!(summary.contains("0 cues"), "expected '0 cues' in: {summary}");
+        assert!(summary.contains("0 chars"), "expected '0 chars' in: {summary}");
+        assert!(summary.contains("0 chunk(s)"), "expected '0 chunk(s)' in: {summary}");
+    }
+
+    #[test]
+    fn dry_run_summary_splits_large_documents() {
+        // Build ASS with 100 cues to force multiple chunks
+        let mut lines = vec![
+            "[Script Info]".to_string(),
+            "Title: Big".to_string(),
+            "ScriptType: v4.00+".to_string(),
+            "".to_string(),
+            "[V4+ Styles]".to_string(),
+            "Format: Name, Fontname, Fontsize".to_string(),
+            "Style: Default,Arial,20".to_string(),
+            "".to_string(),
+            "[Events]".to_string(),
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                .to_string(),
+        ];
+        for i in 1..=100 {
+            lines.push(format!(
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,This is subtitle line number {i} with enough text to fill space",
+                i, i + 1,
+            ));
+        }
+        let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
+        let summary = dry_run_summary(&ass, "pt-BR");
+
+        assert!(summary.contains("100 cues"), "expected '100 cues' in: {summary}");
+        assert!(
+            summary.contains("2 chunk(s)") || summary.contains("3 chunk(s)"),
+            "expected multiple chunks in: {summary}"
+        );
     }
 }

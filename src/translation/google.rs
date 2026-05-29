@@ -256,4 +256,30 @@ mod tests {
 
         assert!(err.to_string().contains("no translations"));
     }
+
+    #[tokio::test]
+    async fn sends_source_when_provided() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/language/translate/v2"))
+            .and(wiremock::matchers::body_string_contains(r#""source":"ja""#))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": { "translations": [{ "translatedText": "<1> Olá" }] }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let translator = GoogleTranslator::with_base_url(server.uri(), "test-key").unwrap();
+        translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello",
+                target_language: "pt",
+                source_language: Some("ja"),
+            })
+            .await
+            .unwrap();
+    }
+
 }

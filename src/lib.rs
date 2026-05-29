@@ -49,7 +49,7 @@ pub use error::{Result, SubtitleToolkitError};
 pub use media::mkv::{MkvInfo, MkvTrack, MkvTrackProperties, inspect_mkv, select_ass_track};
 
 // Pipeline
-pub use pipeline::{TranslateMkvOptions, translate_ass, translate_mkv};
+pub use pipeline::{TranslateMkvOptions, dry_run_summary, translate_ass, translate_mkv};
 
 // Subtitle model
 pub use subtitles::ass::AssSubtitle;
