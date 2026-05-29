@@ -109,13 +109,17 @@ pub mod translation;
 pub use error::{Result, SubtitleToolkitError};
 
 // MKV inspection
-pub use media::mkv::{MkvInfo, MkvTrack, MkvTrackProperties, inspect_mkv, select_ass_track};
+pub use media::mkv::{
+    MkvInfo, MkvTrack, MkvTrackProperties, SubtitleFormat, inspect_mkv, select_ass_track,
+    select_subtitle_track,
+};
 
 // Pipeline
-pub use pipeline::{TranslateMkvOptions, dry_run_summary, translate_ass, translate_mkv};
+pub use pipeline::{TranslateMkvOptions, dry_run_summary, translate_ass, translate_mkv, translate_srt};
 
 // Subtitle model
 pub use subtitles::ass::AssSubtitle;
+pub use subtitles::srt::SrtSubtitle;
 pub use subtitles::model::{SubtitleCue, SubtitleDocument};
 pub use subtitles::structured::{
     apply_translation, chunk_document, chunk_document_by_lines, parse_numbered_text,

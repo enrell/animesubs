@@ -36,9 +36,17 @@ pub enum SubtitleToolkitError {
     #[error("no ASS subtitle track found in {path}")]
     NoAssTrack { path: PathBuf },
 
+    /// No supported subtitle track (ASS or SRT) found in the MKV.
+    #[error("no supported subtitle track found in {path}")]
+    NoSubtitleTrack { path: PathBuf },
+
     /// Malformed ASS subtitle file.
     #[error("ASS parse error: {message}")]
     AssParse { message: String },
+
+    /// Malformed SRT subtitle file.
+    #[error("SRT parse error: {message}")]
+    SrtParse { message: String },
 
     /// LLM returned invalid numbered text (missing IDs, duplicates, etc.).
     #[error("translation response is invalid: {message}")]

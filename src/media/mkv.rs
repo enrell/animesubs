@@ -36,6 +36,15 @@ pub struct MkvTrackProperties {
     pub track_name: Option<String>,
 }
 
+/// Subtitle format detected in an MKV track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubtitleFormat {
+    /// ASS/SSA subtitle format.
+    Ass,
+    /// SRT (SubRip) subtitle format.
+    Srt,
+}
+
 impl MkvTrack {
     /// Returns `true` if this track is an ASS/SSA subtitle.
     pub fn is_ass_subtitle(&self) -> bool {
@@ -44,6 +53,27 @@ impl MkvTrack {
                 codec.eq_ignore_ascii_case("SubStationAlpha")
                     || codec.eq_ignore_ascii_case("AdvancedSubStationAlpha")
             })
+    }
+
+    /// Returns `true` if this track is an SRT (SubRip) subtitle.
+    pub fn is_srt_subtitle(&self) -> bool {
+        self.track_type == "subtitles"
+            && self.codec.as_deref().is_some_and(|codec| {
+                codec.eq_ignore_ascii_case("SubRip")
+                    || codec.eq_ignore_ascii_case("SRT")
+                    || codec.eq_ignore_ascii_case("SubRip/SRT")
+            })
+    }
+
+    /// Returns the subtitle format if this track is a supported subtitle.
+    pub fn subtitle_format(&self) -> Option<SubtitleFormat> {
+        if self.is_ass_subtitle() {
+            Some(SubtitleFormat::Ass)
+        } else if self.is_srt_subtitle() {
+            Some(SubtitleFormat::Srt)
+        } else {
+            None
+        }
     }
 }
 
@@ -100,6 +130,31 @@ pub fn select_ass_track(info: &MkvInfo, requested_track: Option<u64>) -> Option<
     }
 
     info.tracks.iter().find(|track| track.is_ass_subtitle())
+}
+
+/// Select the first supported subtitle track (ASS or SRT), or a specific track by ID.
+///
+/// Returns the track and its detected format. Prefers ASS over SRT when both exist.
+/// Returns `None` if no matching subtitle track is found.
+pub fn select_subtitle_track(
+    info: &MkvInfo,
+    requested_track: Option<u64>,
+) -> Option<(&MkvTrack, SubtitleFormat)> {
+    if let Some(track_id) = requested_track {
+        let track = info.tracks.iter().find(|t| t.id == track_id)?;
+        let format = track.subtitle_format()?;
+        return Some((track, format));
+    }
+
+    // Prefer ASS over SRT
+    if let Some(track) = info.tracks.iter().find(|t| t.is_ass_subtitle()) {
+        return Some((track, SubtitleFormat::Ass));
+    }
+
+    info.tracks
+        .iter()
+        .find(|t| t.is_srt_subtitle())
+        .map(|track| (track, SubtitleFormat::Srt))
 }
 
 /// Extract a subtitle track from an MKV file.

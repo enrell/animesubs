@@ -7,10 +7,13 @@ use tokio::sync::Semaphore;
 
 use crate::error::{Result, SubtitleToolkitError};
 use crate::media::mkv::{
-    discover_mkv_files, extract_subtitle, inspect_mkv, mux_subtitle_in_place, select_ass_track,
+    SubtitleFormat, discover_mkv_files, extract_subtitle, inspect_mkv, mux_subtitle_in_place,
+    select_subtitle_track,
 };
 use crate::retry::retry_async;
 use crate::subtitles::ass::AssSubtitle;
+use crate::subtitles::model::SubtitleDocument;
+use crate::subtitles::srt::SrtSubtitle;
 use crate::subtitles::structured::{
     apply_translation, chunk_document_by_lines, parse_numbered_text, reinject_tags, strip_tags,
     to_numbered_text,
@@ -96,44 +99,73 @@ async fn translate_one(
     translator: Arc<dyn Translator>,
 ) -> Result<()> {
     let info = inspect_mkv(&file).await?;
-    let track = select_ass_track(&info, options.track_id)
-        .ok_or_else(|| SubtitleToolkitError::NoAssTrack { path: file.clone() })?;
+    let (track, format) = select_subtitle_track(&info, options.track_id)
+        .ok_or_else(|| SubtitleToolkitError::NoSubtitleTrack { path: file.clone() })?;
+
+    let ext = match format {
+        SubtitleFormat::Ass => "ass",
+        SubtitleFormat::Srt => "srt",
+    };
 
     let temp_dir = tempdir()?;
-    let extracted_path = temp_dir.path().join("source.ass");
-    let translated_path = temp_dir.path().join("translated.ass");
+    let extracted_path = temp_dir.path().join(format!("source.{ext}"));
+    let translated_path = temp_dir.path().join(format!("translated.{ext}"));
 
-    eprintln!("[translate] {}", file.display());
+    eprintln!("[translate] {} ({})", file.display(), match format {
+        SubtitleFormat::Ass => "ASS",
+        SubtitleFormat::Srt => "SRT",
+    });
     extract_subtitle(&file, track.id, &extracted_path).await?;
 
     let source = tokio::fs::read_to_string(&extracted_path).await?;
-    let ass = AssSubtitle::parse(&source)?;
 
-    if options.dry_run {
-        let summary = dry_run_summary(&ass, &options.target_language);
-        println!("[dry-run] {}: {}", file.display(), summary);
-        return Ok(());
-    }
-
-    let translated_ass = translate_ass(
-        ass,
-        &options.target_language,
-        options.source_language.as_deref(),
-        options.max_concurrent,
-        translator,
-    )
-    .await?;
+    let rendered = match format {
+        SubtitleFormat::Ass => {
+            let ass = AssSubtitle::parse(&source)?;
+            if options.dry_run {
+                let summary = dry_run_summary(ass.document(), &options.target_language);
+                println!("[dry-run] {}: {}", file.display(), summary);
+                return Ok(());
+            }
+            translate_ass(
+                ass,
+                &options.target_language,
+                options.source_language.as_deref(),
+                options.max_concurrent,
+                translator,
+            )
+            .await?
+            .render()
+        }
+        SubtitleFormat::Srt => {
+            let srt = SrtSubtitle::parse(&source)?;
+            if options.dry_run {
+                let summary = dry_run_summary(srt.document(), &options.target_language);
+                println!("[dry-run] {}: {}", file.display(), summary);
+                return Ok(());
+            }
+            translate_srt(
+                srt,
+                &options.target_language,
+                options.source_language.as_deref(),
+                options.max_concurrent,
+                translator,
+            )
+            .await?
+            .render()
+        }
+    };
 
     eprintln!("[translate] muxing translated subtitle");
-    tokio::fs::write(&translated_path, translated_ass.render()).await?;
+    tokio::fs::write(&translated_path, &rendered).await?;
     mux_subtitle_in_place(&file, track.id, &translated_path, &options.target_language).await?;
     eprintln!("[translate] done: {}", file.display());
 
     if options.keep_temp {
         let persisted = file.with_extension("psyche-subtitle-toolkit-temp");
         tokio::fs::create_dir_all(&persisted).await?;
-        tokio::fs::copy(&extracted_path, persisted.join("source.ass")).await?;
-        tokio::fs::copy(&translated_path, persisted.join("translated.ass")).await?;
+        tokio::fs::copy(&extracted_path, persisted.join(format!("source.{ext}"))).await?;
+        tokio::fs::copy(&translated_path, persisted.join(format!("translated.{ext}"))).await?;
     }
 
     Ok(())
@@ -150,9 +182,9 @@ fn progress_file_path(input: &std::path::Path) -> PathBuf {
     dir.join(".psyche-subtitle-toolkit-progress.json")
 }
 
-/// Generate a dry-run summary for an ASS subtitle: cue count, char count, chunk count.
-pub fn dry_run_summary(ass: &AssSubtitle, target_language: &str) -> String {
-    let (clean_doc, _) = strip_tags(ass.document());
+/// Generate a dry-run summary for a subtitle document: cue count, char count, chunk count.
+pub fn dry_run_summary(doc: &SubtitleDocument, target_language: &str) -> String {
+    let (clean_doc, _) = strip_tags(doc);
     let chunks = chunk_document_by_lines(&clean_doc, 200);
     let cue_count = clean_doc.cues.len();
     let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
@@ -167,16 +199,11 @@ pub fn dry_run_summary(ass: &AssSubtitle, target_language: &str) -> String {
 
 /// Translate an ASS subtitle through the full processing pipeline.
 ///
-/// This is the core subtitle processing function:
 /// 1. Strips ASS override tags (`{\pos(...)}`, `{\an7}`, etc.)
 /// 2. Chunks cues into 200-line batches
 /// 3. Translates each chunk via the provided [`Translator`]
 /// 4. Applies translated text back to the document
 /// 5. Re-injects the original override tags
-///
-/// `max_concurrent` controls how many chunks are translated in parallel.
-/// Use 1 for sequential (safe for all providers), or higher for APIs
-/// that support concurrent requests (DeepL: 5, Google: 10, Ollama: 3).
 ///
 /// Returns the translated [`AssSubtitle`]. Use [`AssSubtitle::render`] to get
 /// the final ASS string.
@@ -188,11 +215,51 @@ pub async fn translate_ass(
     translator: Arc<dyn Translator>,
 ) -> Result<AssSubtitle> {
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
+    clean_doc = translate_document(clean_doc, target_language, source_language, max_concurrent, translator).await?;
+    reinject_tags(&mut clean_doc, &tag_map);
+    *ass.document_mut() = clean_doc;
+    Ok(ass)
+}
 
-    let chunks = chunk_document_by_lines(&clean_doc, 200);
+/// Translate an SRT subtitle through the processing pipeline.
+///
+/// 1. Chunks cues into 200-line batches
+/// 2. Translates each chunk via the provided [`Translator`]
+/// 3. Applies translated text back to the document
+///
+/// Returns the translated [`SrtSubtitle`]. Use [`SrtSubtitle::render`] to get
+/// the final SRT string.
+pub async fn translate_srt(
+    mut srt: SrtSubtitle,
+    target_language: &str,
+    source_language: Option<&str>,
+    max_concurrent: usize,
+    translator: Arc<dyn Translator>,
+) -> Result<SrtSubtitle> {
+    let clean_doc = translate_document(
+        srt.document().clone(),
+        target_language,
+        source_language,
+        max_concurrent,
+        translator,
+    )
+    .await?;
+    *srt.document_mut() = clean_doc;
+    Ok(srt)
+}
+
+/// Core translation logic shared by ASS and SRT pipelines.
+async fn translate_document(
+    mut doc: SubtitleDocument,
+    target_language: &str,
+    source_language: Option<&str>,
+    max_concurrent: usize,
+    translator: Arc<dyn Translator>,
+) -> Result<SubtitleDocument> {
+    let chunks = chunk_document_by_lines(&doc, 200);
     let chunk_count = chunks.len();
-    let cue_count = clean_doc.cues.len();
-    let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
+    let cue_count = doc.cues.len();
+    let total_chars: usize = doc.cues.iter().map(|c| c.text.len()).sum();
     eprintln!(
         "[translate] {} cues, {} chars, {} chunk(s), {} concurrent",
         cue_count, total_chars, chunk_count, max_concurrent,
@@ -266,11 +333,8 @@ pub async fn translate_ass(
         all_translated.extend(result?);
     }
 
-    apply_translation(&mut clean_doc, all_translated);
-    reinject_tags(&mut clean_doc, &tag_map);
-
-    *ass.document_mut() = clean_doc;
-    Ok(ass)
+    apply_translation(&mut doc, all_translated);
+    Ok(doc)
 }
 
 #[cfg(test)]
@@ -624,7 +688,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
     #[test]
     fn dry_run_summary_reports_cues_chars_chunks() {
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
-        let summary = dry_run_summary(&ass, "pt-BR");
+        let summary = dry_run_summary(ass.document(), "pt-BR");
 
         assert!(summary.contains("2 cues"), "expected '2 cues' in: {summary}");
         assert!(summary.contains("1 chunk(s)"), "expected '1 chunk(s)' in: {summary}");
@@ -634,7 +698,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
     #[test]
     fn dry_run_summary_counts_chars() {
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
-        let summary = dry_run_summary(&ass, "en");
+        let summary = dry_run_summary(ass.document(), "en");
 
         // "Hello world" = 11 chars, "Goodbye world" = 13 chars = 24 total
         assert!(summary.contains("24 chars"), "expected '24 chars' in: {summary}");
@@ -654,7 +718,7 @@ Style: Default,Arial,20
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 ";
         let ass = AssSubtitle::parse(ass_content).unwrap();
-        let summary = dry_run_summary(&ass, "de");
+        let summary = dry_run_summary(ass.document(), "de");
 
         assert!(summary.contains("0 cues"), "expected '0 cues' in: {summary}");
         assert!(summary.contains("0 chars"), "expected '0 chars' in: {summary}");
@@ -684,7 +748,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             ));
         }
         let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
-        let summary = dry_run_summary(&ass, "pt-BR");
+        let summary = dry_run_summary(ass.document(), "pt-BR");
 
         assert!(summary.contains("300 cues"), "expected '300 cues' in: {summary}");
         assert!(

@@ -131,16 +131,34 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
-            let ass = AssSubtitle::parse(&source)?;
-            let translated = translate_ass(
-                ass,
-                &to,
-                source_lang.as_deref(),
-                1,
-                translator,
-            )
-            .await?;
-            tokio::fs::write(&output, translated.render()).await?;
+
+            // Detect format: extension first, then content
+            let is_srt = input.extension().is_some_and(|e| e.eq_ignore_ascii_case("srt"))
+                || (!source.trim_start().starts_with('[') && source.contains("-->"));
+
+            if is_srt {
+                let srt = psyche_subtitle_toolkit::SrtSubtitle::parse(&source)?;
+                let translated = psyche_subtitle_toolkit::translate_srt(
+                    srt,
+                    &to,
+                    source_lang.as_deref(),
+                    1,
+                    translator,
+                )
+                .await?;
+                tokio::fs::write(&output, translated.render()).await?;
+            } else {
+                let ass = AssSubtitle::parse(&source)?;
+                let translated = translate_ass(
+                    ass,
+                    &to,
+                    source_lang.as_deref(),
+                    1,
+                    translator,
+                )
+                .await?;
+                tokio::fs::write(&output, translated.render()).await?;
+            }
             eprintln!("[translate-ass] written to {}", output.display());
             Ok(())
         }
