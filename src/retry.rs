@@ -46,6 +46,7 @@ fn is_retryable(err: &SubtitleToolkitError) -> bool {
         err,
         SubtitleToolkitError::Http(_)
             | SubtitleToolkitError::Translation { .. }
+            | SubtitleToolkitError::InvalidTranslation { .. }
     )
 }
 
@@ -126,5 +127,29 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(attempts.load(Ordering::SeqCst), 3); // 1 initial + 2 retries
+    }
+
+    #[tokio::test]
+    async fn retries_on_invalid_translation() {
+        let attempts = Arc::new(AtomicU32::new(0));
+        let attempts_clone = attempts.clone();
+
+        let result = retry_async(2, || {
+            let attempts = attempts_clone.clone();
+            async move {
+                let count = attempts.fetch_add(1, Ordering::SeqCst);
+                if count < 2 {
+                    Err(SubtitleToolkitError::InvalidTranslation {
+                        message: format!("missing id <{count}>"),
+                    })
+                } else {
+                    Ok(42)
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 }

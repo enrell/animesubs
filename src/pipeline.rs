@@ -164,16 +164,23 @@ pub async fn translate_ass<T: Translator + ?Sized>(
         let numbered = to_numbered_text(chunk);
         let ids = chunk.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
 
-        let numbered_ref = &numbered;
-        let translated_text = retry_async(3, || {
-            translator.translate(TranslationRequest {
-                source_text: numbered_ref,
-                target_language,
-                source_language,
-            })
+        let numbered_clone = numbered.clone();
+        let ids_clone = ids.clone();
+        let parsed = retry_async(3, || {
+            let numbered = numbered_clone.clone();
+            let ids = ids_clone.clone();
+            async move {
+                let translated_text = translator
+                    .translate(TranslationRequest {
+                        source_text: &numbered,
+                        target_language,
+                        source_language,
+                    })
+                    .await?;
+                parse_numbered_text(&translated_text, &ids)
+            }
         })
         .await?;
-        let parsed = parse_numbered_text(&translated_text, &ids)?;
         all_translated.extend(parsed);
     }
 
@@ -204,6 +211,9 @@ mod tests {
         responses: std::collections::HashMap<String, String>,
         /// If set, all calls return this error.
         error: Option<String>,
+        /// If set, returns responses in order (first call → first response, etc.).
+        /// Used for testing retry on malformed output.
+        sequential: Mutex<Vec<String>>,
     }
 
     impl FakeTranslator {
@@ -212,6 +222,7 @@ mod tests {
                 received: Mutex::new(Vec::new()),
                 responses,
                 error: None,
+                sequential: Mutex::new(Vec::new()),
             }
         }
 
@@ -220,6 +231,16 @@ mod tests {
                 received: Mutex::new(Vec::new()),
                 responses: std::collections::HashMap::new(),
                 error: Some(message.to_string()),
+                sequential: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_sequential_responses(responses: Vec<String>) -> Self {
+            Self {
+                received: Mutex::new(Vec::new()),
+                responses: std::collections::HashMap::new(),
+                error: None,
+                sequential: Mutex::new(responses),
             }
         }
 
@@ -241,6 +262,14 @@ mod tests {
                     provider: "fake",
                     message: msg.clone(),
                 });
+            }
+
+            // Sequential mode: pop from front of queue
+            {
+                let mut seq = self.sequential.lock().unwrap();
+                if !seq.is_empty() {
+                    return Ok(seq.remove(0));
+                }
             }
 
             Ok(self
@@ -582,5 +611,50 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             summary.contains("2 chunk(s)") || summary.contains("3 chunk(s)"),
             "expected multiple chunks in: {summary}"
         );
+    }
+
+    #[tokio::test]
+    async fn pipeline_retries_chunk_on_malformed_output() {
+        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
+
+        // First call: returns broken output (missing <2>)
+        // Second call: returns correct output
+        let translator = FakeTranslator::with_sequential_responses(vec![
+            "<1> Olá mundo".to_string(),           // missing <2>
+            "<1> Olá mundo\n<2> Adeus mundo".to_string(), // correct
+        ]);
+
+        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
+        let rendered = result.render();
+
+        assert!(rendered.contains("Olá mundo"));
+        assert!(rendered.contains("Adeus mundo"));
+
+        // Should have been called twice (1 failed + 1 success)
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn pipeline_gives_up_after_repeated_malformed_output() {
+        let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
+
+        // Always returns broken output (missing <2>)
+        let translator = FakeTranslator::with_sequential_responses(vec![
+            "<1> Olá mundo".to_string(),
+            "<1> Olá mundo".to_string(),
+            "<1> Olá mundo".to_string(),
+            "<1> Olá mundo".to_string(), // 4 attempts total (1 initial + 3 retries)
+        ]);
+
+        let err = translate_ass(ass, "pt-BR", None, &translator)
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("missing id <2>"));
+
+        // Should have been called 4 times (1 initial + 3 retries)
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 4);
     }
 }
