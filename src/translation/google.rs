@@ -64,7 +64,7 @@ impl Translator for GoogleTranslator {
             ))
             .query(&[("key", &self.api_key)])
             .json(&GoogleTranslateRequest {
-                q: vec![request.source_text],
+                q: request.source_text.lines().collect(),
                 target: request.target_language,
                 source: request.source_language,
                 format: "text",
@@ -83,16 +83,19 @@ impl Translator for GoogleTranslator {
         }
 
         let body = response.json::<GoogleTranslateResponse>().await?;
+        if body.data.translations.is_empty() {
+            return Err(SubtitleToolkitError::Translation {
+                provider: "google",
+                message: "response contained no translations".into(),
+            });
+        }
         let translated = body
             .data
             .translations
             .into_iter()
-            .next()
-            .ok_or_else(|| SubtitleToolkitError::Translation {
-                provider: "google",
-                message: "response contained no translations".into(),
-            })?
-            .translated_text;
+            .map(|t| t.translated_text)
+            .collect::<Vec<_>>()
+            .join("\n");
 
         Ok(translated)
     }
@@ -137,7 +140,7 @@ mod tests {
             .and(path("/language/translate/v2"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": {
-                    "translations": [{ "translatedText": "<1> Olá\n<2> mundo" }]
+                    "translations": [{ "translatedText": "<1> Olá" }, { "translatedText": "<2> mundo" }]
                 }
             })))
             .mount(&server)
@@ -148,7 +151,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt",
-            source_language: None,
+                source_language: None,
             })
             .await
             .unwrap();
@@ -282,4 +285,61 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    async fn sends_each_line_as_separate_array_element() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/language/translate/v2"))
+            .and(wiremock::matchers::body_string_contains(r#""<1> hello""#))
+            .and(wiremock::matchers::body_string_contains(r#""<2> world""#))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "translations": [{ "translatedText": "<1> Olá" }, { "translatedText": "<2> mundo" }]
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let translator = GoogleTranslator::with_base_url(server.uri(), "test-key").unwrap();
+        translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello\n<2> world",
+                target_language: "pt",
+                source_language: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn joins_translated_lines_back() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": {
+                    "translations": [
+                        { "translatedText": "<1> Zeile eins" },
+                        { "translatedText": "<2> Zeile zwei" },
+                        { "translatedText": "<3> Zeile drei" }
+                    ]
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let translator = GoogleTranslator::with_base_url(server.uri(), "test-key").unwrap();
+        let result = translator
+            .translate(TranslationRequest {
+                source_text: "<1> Line one\n<2> Line two\n<3> Line three",
+                target_language: "de",
+                source_language: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(result, "<1> Zeile eins\n<2> Zeile zwei\n<3> Zeile drei");
+    }
 }
