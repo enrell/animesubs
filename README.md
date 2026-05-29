@@ -22,6 +22,7 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 | Provider | Flag | Auth | `--parallel` | Notes |
 |----------|------|------|-------------|-------|
 | [Ollama](https://ollama.com) | `--provider ollama` | None | 3 | Default. Any Ollama model. |
+| [Anthropic](https://docs.anthropic.com) | `--provider anthropic` | `--api-key` | 2 | Messages API. Custom endpoint via `--anthropic-url`. |
 | [OpenAI](https://platform.openai.com) | `--provider openai` | `--api-key` | 2 | Compatible with any OpenAI-compatible API. |
 | [OpenRouter](https://openrouter.ai) | `--provider openrouter` | `--api-key` | 2 | 400+ models, including free models. |
 | [DeepL](https://www.deepl.com) | `--provider deepl` | `--api-key` | 5 | Free tier (500K chars/month) or pro tier. |
@@ -113,7 +114,8 @@ Progress is saved to `.psyche-subtitle-toolkit-progress.json` in the input direc
     --model <MODEL>          Model name [default: llama3.1]
     --ollama-url <URL>       Ollama base URL [default: http://localhost:11434]
     --openai-url <URL>       OpenAI base URL [default: https://api.openai.com]
-    --api-key <KEY>          API key (required for openai, openrouter, deepl, google, gemini)
+    --anthropic-url <URL>    Anthropic base URL [default: https://api.anthropic.com]
+    --api-key <KEY>          API key (required for openai, openrouter, anthropic, deepl, google, gemini)
     --deepl-url <URL>        DeepL base URL [default: https://api-free.deepl.com]
     --keep-temp              Preserve extracted/translated ASS files
     --dry-run                Show what would be translated without modifying files
