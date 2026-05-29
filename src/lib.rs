@@ -63,6 +63,7 @@ pub use subtitles::structured::{
 };
 
 // Translation
+pub use translation::anthropic::AnthropicTranslator;
 pub use translation::deepl::DeepLTranslator;
 pub use translation::gemini::GeminiTranslator;
 pub use translation::google::GoogleTranslator;

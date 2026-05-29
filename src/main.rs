@@ -5,6 +5,7 @@ use psyche_subtitle_toolkit::media::mkv::{inspect_mkv, select_ass_track};
 use psyche_subtitle_toolkit::AssSubtitle;
 use psyche_subtitle_toolkit::pipeline::{TranslateMkvOptions, translate_ass, translate_mkv};
 use psyche_subtitle_toolkit::translation::Translator;
+use psyche_subtitle_toolkit::translation::anthropic::AnthropicTranslator;
 use psyche_subtitle_toolkit::translation::deepl::DeepLTranslator;
 use psyche_subtitle_toolkit::translation::gemini::GeminiTranslator;
 use psyche_subtitle_toolkit::translation::google::GoogleTranslator;
@@ -32,7 +33,7 @@ enum Command {
         #[arg(long)]
         to: String,
 
-        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, deepl, google, gemini")]
+        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini")]
         provider: String,
 
         #[arg(long)]
@@ -44,7 +45,7 @@ enum Command {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
 
-        #[arg(long, help = "API key (required for openai, openrouter, deepl, google, and gemini providers)")]
+        #[arg(long, help = "API key (required for openai, openrouter, anthropic, deepl, google, and gemini providers)")]
         api_key: Option<String>,
 
         #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
@@ -52,6 +53,9 @@ enum Command {
 
         #[arg(long, default_value = "https://api.openai.com", help = "OpenAI API base URL (any OpenAI-compatible endpoint)")]
         openai_url: String,
+
+        #[arg(long, default_value = "https://api.anthropic.com", help = "Anthropic API base URL")]
+        anthropic_url: String,
 
         #[arg(long)]
         keep_temp: bool,
@@ -78,7 +82,7 @@ enum Command {
         #[arg(long)]
         to: String,
 
-        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, deepl, google, gemini")]
+        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini")]
         provider: String,
 
         #[arg(long, default_value = "llama3.1")]
@@ -87,7 +91,7 @@ enum Command {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
 
-        #[arg(long, help = "API key (required for openai, openrouter, deepl, google, and gemini providers)")]
+        #[arg(long, help = "API key (required for openai, openrouter, anthropic, deepl, google, and gemini providers)")]
         api_key: Option<String>,
 
         #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
@@ -95,6 +99,9 @@ enum Command {
 
         #[arg(long, default_value = "https://api.openai.com", help = "OpenAI API base URL (any OpenAI-compatible endpoint)")]
         openai_url: String,
+
+        #[arg(long, default_value = "https://api.anthropic.com", help = "Anthropic API base URL")]
+        anthropic_url: String,
 
         #[arg(long, help = "Source language code (e.g. en, ja)")]
         source_lang: Option<String>,
@@ -117,9 +124,10 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             api_key,
             deepl_url,
             openai_url,
+            anthropic_url,
             source_lang,
         } => {
-            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, api_key)?;
+            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, &anthropic_url, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
@@ -146,13 +154,14 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             api_key,
             deepl_url,
             openai_url,
+            anthropic_url,
             keep_temp,
             dry_run,
             source_lang,
             resume,
             parallel,
         } => {
-            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, api_key)?;
+            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, &anthropic_url, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             translate_mkv(
@@ -179,6 +188,7 @@ fn build_translator(
     ollama_url: &str,
     deepl_url: &str,
     openai_url: &str,
+    anthropic_url: &str,
     api_key: Option<String>,
 ) -> psyche_subtitle_toolkit::Result<Box<dyn Translator>> {
     match provider {
@@ -232,10 +242,21 @@ fn build_translator(
             })?;
             Ok(Box::new(OpenRouterTranslator::new(key, model)?))
         }
+        "anthropic" => {
+            let key = api_key.ok_or_else(|| {
+                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+                    provider: "anthropic",
+                    message: "--api-key is required for the anthropic provider".into(),
+                }
+            })?;
+            Ok(Box::new(AnthropicTranslator::with_base_url(
+                anthropic_url, key, model,
+            )?))
+        }
         unknown => Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
             provider: "cli",
             message: format!(
-                "unknown provider `{unknown}`, supported: ollama, openai, openrouter, deepl, google, gemini"
+                "unknown provider `{unknown}`, supported: ollama, openai, openrouter, anthropic, deepl, google, gemini"
             ),
         }),
     }

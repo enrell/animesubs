@@ -1,3 +1,4 @@
+pub mod anthropic;
 pub mod deepl;
 pub mod gemini;
 pub mod google;
@@ -13,6 +14,7 @@ use crate::error::Result;
 ///
 /// Implement this trait to provide custom translation providers.
 /// Built-in implementations:
+/// - [`anthropic::AnthropicTranslator`] — calls the Anthropic Messages API
 /// - [`ollama::OllamaTranslator`] — calls the Ollama `/api/generate` endpoint
 /// - [`openai::OpenAiTranslator`] — calls the OpenAI `/v1/chat/completions` endpoint
 /// - [`deepl::DeepLTranslator`] — calls the DeepL `/v2/translate` endpoint
