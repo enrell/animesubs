@@ -66,6 +66,7 @@ impl Translator for DeepLTranslator {
             .json(&DeepLTranslateRequest {
                 text: vec![request.source_text],
                 target_lang: &request.target_language.to_uppercase(),
+                source_lang: request.source_language.map(|l| l.to_uppercase()),
                 split_sentences: "0",
                 preserve_formatting: true,
             })
@@ -101,6 +102,8 @@ impl Translator for DeepLTranslator {
 struct DeepLTranslateRequest<'a> {
     text: Vec<&'a str>,
     target_lang: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_lang: Option<String>,
     split_sentences: &'static str,
     preserve_formatting: bool,
 }
@@ -138,6 +141,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
+            source_language: None,
             })
             .await
             .unwrap();
@@ -162,6 +166,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "de",
+            source_language: None,
             })
             .await
             .unwrap();
@@ -184,6 +189,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "pt-BR",
+            source_language: None,
             })
             .await
             .unwrap();
@@ -205,6 +211,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "de",
+            source_language: None,
             })
             .await
             .unwrap_err();
@@ -229,6 +236,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "de",
+            source_language: None,
             })
             .await
             .unwrap_err();

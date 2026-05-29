@@ -1,6 +1,9 @@
 pub mod deepl;
+pub mod gemini;
+pub mod google;
 pub mod ollama;
 pub mod openai;
+pub mod openrouter;
 
 use async_trait::async_trait;
 
@@ -13,6 +16,9 @@ use crate::error::Result;
 /// - [`ollama::OllamaTranslator`] — calls the Ollama `/api/generate` endpoint
 /// - [`openai::OpenAiTranslator`] — calls the OpenAI `/v1/chat/completions` endpoint
 /// - [`deepl::DeepLTranslator`] — calls the DeepL `/v2/translate` endpoint
+/// - [`google::GoogleTranslator`] — calls the Google Cloud Translation v2 endpoint
+/// - [`gemini::GeminiTranslator`] — calls the Google Gemini `generateContent` endpoint
+/// - [`openrouter::OpenRouterTranslator`] — calls the OpenRouter `/api/v1/chat/completions` endpoint
 ///
 /// Each provider owns its own prompt construction and HTTP client.
 /// The pipeline calls [`Translator::translate`] with numbered subtitle text
@@ -33,4 +39,8 @@ pub struct TranslationRequest<'a> {
     pub source_text: &'a str,
     /// Target language code (e.g. `"pt-BR"`, `"en"`, `"ja"`).
     pub target_language: &'a str,
+    /// Optional source language code (e.g. `"en"`, `"ja"`).
+    /// Providers that support it (DeepL, Google) pass it to the API.
+    /// LLM providers include it in the prompt when set.
+    pub source_language: Option<&'a str>,
 }

@@ -112,15 +112,22 @@ fn build_messages(request: &TranslationRequest<'_>) -> Vec<ChatMessage> {
         },
         ChatMessage {
             role: "user",
-            content: format!(
-                "Translate the following subtitle dialogue to {target_language}.\n\n\
-                 Preserve every numeric tag exactly, like <1>, <2>, <3>.\n\
-                 Keep line breaks inside each subtitle when needed.\n\n\
-                 Subtitle dialogue:\n\
-                 {source_text}",
-                target_language = request.target_language,
-                source_text = request.source_text,
-            ),
+            content: {
+                let source_hint = match request.source_language {
+                    Some(lang) => format!("The source language is {lang}.\n"),
+                    None => String::new(),
+                };
+                format!(
+                    "Translate the following subtitle dialogue to {target_language}.\n\
+                     {source_hint}\n\
+                     Preserve every numeric tag exactly, like <1>, <2>, <3>.\n\
+                     Keep line breaks inside each subtitle when needed.\n\n\
+                     Subtitle dialogue:\n\
+                     {source_text}",
+                    target_language = request.target_language,
+                    source_text = request.source_text,
+                )
+            },
         },
     ]
 }
@@ -179,6 +186,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
+            source_language: None,
             })
             .await
             .unwrap();
@@ -204,6 +212,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "en",
+            source_language: None,
             })
             .await
             .unwrap();
@@ -226,6 +235,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "en",
+            source_language: None,
             })
             .await
             .unwrap_err();
@@ -250,6 +260,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "en",
+            source_language: None,
             })
             .await
             .unwrap_err();

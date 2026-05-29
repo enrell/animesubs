@@ -74,8 +74,13 @@ impl Translator for OllamaTranslator {
 }
 
 fn build_prompt(request: &TranslationRequest<'_>) -> String {
+    let source_hint = match request.source_language {
+        Some(lang) => format!("The source language is {lang}.\n"),
+        None => String::new(),
+    };
     format!(
-        "Translate the following subtitle dialogue to {target_language}.\n\n\
+        "Translate the following subtitle dialogue to {target_language}.\n\
+         {source_hint}\n\
          Rules:\n\
          - Preserve every numeric tag exactly, like <1>, <2>, <3>.\n\
          - Return only translated subtitle lines.\n\
@@ -124,6 +129,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
                 target_language: "pt-BR",
+                source_language: None,
             })
             .await
             .unwrap();
@@ -147,6 +153,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
+                source_language: None,
             })
             .await
             .unwrap();
@@ -168,6 +175,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> hello",
                 target_language: "pt-BR",
+                source_language: None,
             })
             .await
             .unwrap_err();
@@ -194,6 +202,7 @@ mod tests {
             .translate(TranslationRequest {
                 source_text: "<1> test",
                 target_language: "ja",
+                source_language: None,
             })
             .await
             .unwrap();

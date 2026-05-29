@@ -27,6 +27,8 @@ pub struct TranslateMkvOptions {
     pub keep_temp: bool,
     /// If `true`, shows what would be translated without modifying files.
     pub dry_run: bool,
+    /// Optional source language hint (e.g. `"en"`, `"ja"`).
+    pub source_language: Option<String>,
 }
 
 /// Translate ASS subtitles in MKV file(s) and mux the result back in-place.
@@ -88,7 +90,13 @@ async fn translate_one<T: Translator + ?Sized>(
         return Ok(());
     }
 
-    let translated_ass = translate_ass(ass, &options.target_language, translator).await?;
+    let translated_ass = translate_ass(
+        ass,
+        &options.target_language,
+        options.source_language.as_deref(),
+        translator,
+    )
+    .await?;
 
     tokio::fs::write(&translated_path, translated_ass.render()).await?;
     mux_subtitle_in_place(&file, track.id, &translated_path, &options.target_language).await?;
@@ -117,6 +125,7 @@ async fn translate_one<T: Translator + ?Sized>(
 pub async fn translate_ass<T: Translator + ?Sized>(
     mut ass: AssSubtitle,
     target_language: &str,
+    source_language: Option<&str>,
     translator: &T,
 ) -> Result<AssSubtitle> {
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
@@ -132,6 +141,7 @@ pub async fn translate_ass<T: Translator + ?Sized>(
             .translate(TranslationRequest {
                 source_text: &numbered,
                 target_language,
+                source_language,
             })
             .await?;
         let parsed = parse_numbered_text(&translated_text, &ids)?;
@@ -248,7 +258,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         responses.insert("<1> Hello world\n<2> Goodbye world".to_string(), "<1> Olá mundo\n<2> Adeus mundo".to_string());
 
         let translator = FakeTranslator::new(responses);
-        let result = translate_ass(ass, "pt-BR", &translator).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Olá mundo"));
@@ -270,7 +280,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         responses.insert("<1> Hello world\n<2> Goodbye world".to_string(), "<1> translated1\n<2> translated2".to_string());
 
         let translator = FakeTranslator::new(responses);
-        translate_ass(ass, "ja", &translator).await.unwrap();
+        translate_ass(ass, "ja", None, &translator).await.unwrap();
 
         let texts = translator.received_texts();
         assert_eq!(texts.len(), 1);
@@ -289,7 +299,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         );
 
         let translator = FakeTranslator::new(responses);
-        let result = translate_ass(ass, "pt-BR", &translator).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
         let rendered = result.render();
 
         // Tags reinjected
@@ -344,7 +354,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let translator = FakeTranslator::new(std::collections::HashMap::new());
 
         let ass = AssSubtitle::parse(&ass_content).unwrap();
-        let result = translate_ass(ass, "pt-BR", &translator).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
         let rendered = result.render();
 
         // All 100 cues should be present (identity translation)
@@ -380,7 +390,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
         let translator = FakeTranslator::with_error("rate limit exceeded");
 
-        let err = translate_ass(ass, "pt-BR", &translator).await.unwrap_err();
+        let err = translate_ass(ass, "pt-BR", None, &translator).await.unwrap_err();
 
         assert!(err.to_string().contains("fake"));
         assert!(err.to_string().contains("rate limit exceeded"));
@@ -398,7 +408,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         );
 
         let translator = FakeTranslator::new(responses);
-        let err = translate_ass(ass, "pt-BR", &translator).await.unwrap_err();
+        let err = translate_ass(ass, "pt-BR", None, &translator).await.unwrap_err();
 
         assert!(err.to_string().contains("missing id <2>"));
     }
@@ -427,7 +437,7 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
         );
 
         let translator = FakeTranslator::new(responses);
-        let result = translate_ass(ass, "pt-BR", &translator).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Primeira linha"));

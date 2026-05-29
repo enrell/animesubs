@@ -54,6 +54,9 @@ enum Command {
 
         #[arg(long, help = "Show what would be translated without modifying files")]
         dry_run: bool,
+
+        #[arg(long, help = "Source language code (e.g. en, ja)")]
+        source_lang: Option<String>,
     },
 }
 
@@ -74,6 +77,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             deepl_url,
             keep_temp,
             dry_run,
+            source_lang,
         } => {
             let translator: Box<dyn Translator> = match provider.as_str() {
                 "ollama" => Box::new(OllamaTranslator::with_base_url(ollama_url, model)?),
@@ -138,6 +142,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     track_id: track,
                     keep_temp,
                     dry_run,
+                    source_language: source_lang,
                 },
                 &*translator,
             )
