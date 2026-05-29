@@ -1,21 +1,21 @@
 # psyche-subtitle-toolkit
 
-Extract, translate, and mux ASS subtitles in MKV files. Built for Psyche but usable as a standalone CLI or Rust library.
+Extract, translate, and mux ASS and SRT subtitles in MKV files. Built for Psyche but usable as a standalone CLI or Rust library.
 
 No cloud required. No telemetry. Every translation provider is opt-in.
 
 ## Features
 
-- Extract ASS subtitle tracks from MKV files via mkvmerge/mkvextract
-- Translate subtitle dialogue through 6 pluggable providers
+- Extract ASS and SRT subtitle tracks from MKV files via mkvmerge/mkvextract
+- Translate subtitle dialogue through 7 pluggable providers
 - Protect ASS override tags (`{\pos(...)}`, `{\an7}`, etc.) during translation
 - Automatic chunking (200 lines per request) for LLM context limits
 - Concurrent chunk translation with configurable parallelism
 - Retry with exponential backoff on HTTP, provider, and malformed output errors
 - Mux translated subtitles back into the MKV, replacing the original track
 - Process single files or entire directories
+- Translate standalone `.ass` and `.srt` files without MKV (via `translate-ass` subcommand)
 - Resume interrupted translations with `--resume`
-- Translate standalone `.ass` files without MKV (via `translate-ass` subcommand)
 
 ## Supported Providers
 
@@ -84,10 +84,14 @@ psyche-subtitle-toolkit translate --provider gemini --api-key YOUR_KEY --model g
 psyche-subtitle-toolkit translate --provider openrouter --api-key YOUR_KEY --model meta-llama/llama-3.3-70b-instruct:free --input episode.mkv --to pt-BR
 ```
 
-### Translate a standalone ASS file
+### Translate standalone subtitle files
 
 ```sh
+# ASS file
 psyche-subtitle-toolkit translate-ass --input source.ass --output translated.ass --to pt-BR --provider deepl --api-key YOUR_KEY
+
+# SRT file (auto-detected by extension or content)
+psyche-subtitle-toolkit translate-ass --input source.srt --output translated.srt --to pt-BR --provider deepl --api-key YOUR_KEY
 ```
 
 ### Resume interrupted translations
@@ -194,7 +198,7 @@ impl Translator for MyTranslator {
 
 ## How It Works
 
-1. **Inspect** -- `mkvmerge -J` identifies tracks and selects the ASS subtitle
+1. **Inspect** -- `mkvmerge -J` identifies tracks and selects the ASS or SRT subtitle
 2. **Extract** -- `mkvextract tracks` pulls the ASS file to a temp directory
 3. **Parse** -- The ASS parser reads dialogue lines, preserving headers and styles
 4. **Strip tags** -- ASS override tags (`{\pos(...)}`, `{\an7}`) are removed and stored
@@ -208,7 +212,7 @@ impl Translator for MyTranslator {
 ## Testing
 
 ```sh
-cargo test           # 77 unit + integration tests
+cargo test           # 96 unit + 11 doc-tests
 cargo clippy -- -D warnings
 ```
 
