@@ -112,6 +112,7 @@ Progress is saved to `.psyche-subtitle-toolkit-progress.json` in the input direc
     --track <TRACK>          Specific subtitle track ID to translate
     --model <MODEL>          Model name [default: llama3.1]
     --ollama-url <URL>       Ollama base URL [default: http://localhost:11434]
+    --openai-url <URL>       OpenAI base URL [default: https://api.openai.com]
     --api-key <KEY>          API key (required for openai, openrouter, deepl, google, gemini)
     --deepl-url <URL>        DeepL base URL [default: https://api-free.deepl.com]
     --keep-temp              Preserve extracted/translated ASS files
