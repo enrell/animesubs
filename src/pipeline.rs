@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tempfile::tempdir;
+use tokio::sync::Semaphore;
 
 use crate::error::{Result, SubtitleToolkitError};
 use crate::media::mkv::{
@@ -32,6 +34,8 @@ pub struct TranslateMkvOptions {
     pub source_language: Option<String>,
     /// If `true`, saves progress to a file and skips already-translated files on restart.
     pub resume: bool,
+    /// Maximum number of chunks to translate concurrently. Default: 1 (sequential).
+    pub max_concurrent: usize,
 }
 
 /// Translate ASS subtitles in MKV file(s) and mux the result back in-place.
@@ -40,15 +44,15 @@ pub struct TranslateMkvOptions {
 /// 1. Inspects tracks and selects the ASS subtitle track
 /// 2. Extracts the subtitle to a temp directory
 /// 3. Strips ASS override tags (`{\pos(...)}`, `{\an7}`, etc.)
-/// 4. Chunks cues into ~5000-char batches
+/// 4. Chunks cues into 200-line batches
 /// 5. Translates each chunk via the provided [`Translator`]
 /// 6. Re-injects override tags
 /// 7. Muxes the translated subtitle into the MKV (replacing the original track)
 ///
 /// If `input` is a directory, processes all `.mkv` files sequentially.
-pub async fn translate_mkv<T: Translator + ?Sized>(
+pub async fn translate_mkv(
     options: TranslateMkvOptions,
-    translator: &T,
+    translator: Arc<dyn Translator>,
 ) -> Result<()> {
     let files = discover_mkv_files(&options.input).await?;
 
@@ -69,7 +73,7 @@ pub async fn translate_mkv<T: Translator + ?Sized>(
             continue;
         }
 
-        translate_one(file, &options, translator).await?;
+        translate_one(file, &options, translator.clone()).await?;
 
         if options.resume {
             completed.push(file_str);
@@ -86,10 +90,10 @@ pub async fn translate_mkv<T: Translator + ?Sized>(
     Ok(())
 }
 
-async fn translate_one<T: Translator + ?Sized>(
+async fn translate_one(
     file: PathBuf,
     options: &TranslateMkvOptions,
-    translator: &T,
+    translator: Arc<dyn Translator>,
 ) -> Result<()> {
     let info = inspect_mkv(&file).await?;
     let track = select_ass_track(&info, options.track_id)
@@ -115,6 +119,7 @@ async fn translate_one<T: Translator + ?Sized>(
         ass,
         &options.target_language,
         options.source_language.as_deref(),
+        options.max_concurrent,
         translator,
     )
     .await?;
@@ -164,18 +169,23 @@ pub fn dry_run_summary(ass: &AssSubtitle, target_language: &str) -> String {
 ///
 /// This is the core subtitle processing function:
 /// 1. Strips ASS override tags (`{\pos(...)}`, `{\an7}`, etc.)
-/// 2. Chunks cues into batches (5000 chars each)
+/// 2. Chunks cues into 200-line batches
 /// 3. Translates each chunk via the provided [`Translator`]
 /// 4. Applies translated text back to the document
 /// 5. Re-injects the original override tags
 ///
+/// `max_concurrent` controls how many chunks are translated in parallel.
+/// Use 1 for sequential (safe for all providers), or higher for APIs
+/// that support concurrent requests (DeepL: 5, Google: 10, Ollama: 3).
+///
 /// Returns the translated [`AssSubtitle`]. Use [`AssSubtitle::render`] to get
 /// the final ASS string.
-pub async fn translate_ass<T: Translator + ?Sized>(
+pub async fn translate_ass(
     mut ass: AssSubtitle,
     target_language: &str,
     source_language: Option<&str>,
-    translator: &T,
+    max_concurrent: usize,
+    translator: Arc<dyn Translator>,
 ) -> Result<AssSubtitle> {
     let (mut clean_doc, tag_map) = strip_tags(ass.document());
 
@@ -184,13 +194,14 @@ pub async fn translate_ass<T: Translator + ?Sized>(
     let cue_count = clean_doc.cues.len();
     let total_chars: usize = clean_doc.cues.iter().map(|c| c.text.len()).sum();
     eprintln!(
-        "[translate] {} cues, {} chars, {} chunk(s)",
-        cue_count, total_chars, chunk_count,
+        "[translate] {} cues, {} chars, {} chunk(s), {} concurrent",
+        cue_count, total_chars, chunk_count, max_concurrent,
     );
 
-    let mut all_translated = BTreeMap::new();
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let mut join_set = tokio::task::JoinSet::new();
 
-    for (i, chunk) in chunks.iter().enumerate() {
+    for (i, chunk) in chunks.into_iter().enumerate() {
         if chunk_count > 1 {
             let chunk_chars: usize = chunk.cues.iter().map(|c| c.text.len()).sum();
             eprintln!(
@@ -201,27 +212,58 @@ pub async fn translate_ass<T: Translator + ?Sized>(
                 chunk_chars,
             );
         }
-        let numbered = to_numbered_text(chunk);
-        let ids = chunk.cues.iter().map(|cue| cue.id).collect::<Vec<_>>();
+        let numbered = to_numbered_text(&chunk);
+        let ids: Vec<usize> = chunk.cues.iter().map(|cue| cue.id).collect();
+        let permit = semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| SubtitleToolkitError::Translation {
+                provider: "pipeline",
+                message: format!("semaphore closed: {e}"),
+            })?;
+        let translator = translator.clone();
+        let target = target_language.to_string();
+        let source = source_language.map(|s| s.to_string());
 
-        let numbered_clone = numbered.clone();
-        let ids_clone = ids.clone();
-        let parsed = retry_async(3, || {
-            let numbered = numbered_clone.clone();
-            let ids = ids_clone.clone();
-            async move {
-                let translated_text = translator
-                    .translate(TranslationRequest {
-                        source_text: &numbered,
-                        target_language,
-                        source_language,
-                    })
-                    .await?;
-                parse_numbered_text(&translated_text, &ids)
-            }
-        })
-        .await?;
-        all_translated.extend(parsed);
+        join_set.spawn(async move {
+            let _permit = permit;
+            let numbered_clone = numbered.clone();
+            let ids_clone = ids.clone();
+            let result = retry_async(3, || {
+                let numbered = numbered_clone.clone();
+                let ids = ids_clone.clone();
+                let translator = translator.clone();
+                let target = target.clone();
+                let source = source.clone();
+                async move {
+                    let translated_text = translator
+                        .translate(TranslationRequest {
+                            source_text: &numbered,
+                            target_language: &target,
+                            source_language: source.as_deref(),
+                        })
+                        .await?;
+                    parse_numbered_text(&translated_text, &ids)
+                }
+            })
+            .await;
+            (i, result)
+        });
+    }
+
+    let mut all_translated = BTreeMap::new();
+    let mut results: Vec<(usize, Result<BTreeMap<usize, String>>)> = Vec::new();
+    while let Some(result) = join_set.join_next().await {
+        let (i, outcome) = result.map_err(|e| SubtitleToolkitError::Translation {
+            provider: "pipeline",
+            message: format!("task panicked: {e}"),
+        })?;
+        results.push((i, outcome));
+    }
+    results.sort_by_key(|(i, _)| *i);
+    for (_, result) in results {
+        all_translated.extend(result?);
     }
 
     apply_translation(&mut clean_doc, all_translated);
@@ -355,8 +397,8 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let mut responses = std::collections::HashMap::new();
         responses.insert("<1> Hello world\n<2> Goodbye world".to_string(), "<1> Olá mundo\n<2> Adeus mundo".to_string());
 
-        let translator = FakeTranslator::new(responses);
-        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
+        let translator = Arc::new(FakeTranslator::new(responses));
+        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Olá mundo"));
@@ -377,8 +419,8 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let mut responses = std::collections::HashMap::new();
         responses.insert("<1> Hello world\n<2> Goodbye world".to_string(), "<1> translated1\n<2> translated2".to_string());
 
-        let translator = FakeTranslator::new(responses);
-        translate_ass(ass, "ja", None, &translator).await.unwrap();
+        let translator = Arc::new(FakeTranslator::new(responses));
+        translate_ass(ass, "ja", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
 
         let texts = translator.received_texts();
         assert_eq!(texts.len(), 1);
@@ -396,8 +438,8 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
             "<1> Linha de status\n<2> Texto normal".to_string(),
         );
 
-        let translator = FakeTranslator::new(responses);
-        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
+        let translator = Arc::new(FakeTranslator::new(responses));
+        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         // Tags reinjected
@@ -447,10 +489,10 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         assert_eq!(chunks[1].cues.len(), 100);
 
         // Build a FakeTranslator (identity translation)
-        let translator = FakeTranslator::new(std::collections::HashMap::new());
+        let translator = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
 
         let ass = AssSubtitle::parse(&ass_content).unwrap();
-        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         // All 300 cues should be present
@@ -486,7 +528,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
         let translator = FakeTranslator::with_error("rate limit exceeded");
 
-        let err = translate_ass(ass, "pt-BR", None, &translator).await.unwrap_err();
+        let err = translate_ass(ass, "pt-BR", None, 1, Arc::new(translator) as Arc<dyn Translator>).await.unwrap_err();
 
         assert!(err.to_string().contains("fake"));
         assert!(err.to_string().contains("rate limit exceeded"));
@@ -504,7 +546,7 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Normal text
         );
 
         let translator = FakeTranslator::new(responses);
-        let err = translate_ass(ass, "pt-BR", None, &translator).await.unwrap_err();
+        let err = translate_ass(ass, "pt-BR", None, 1, Arc::new(translator) as Arc<dyn Translator>).await.unwrap_err();
 
         assert!(err.to_string().contains("missing id <2>"));
     }
@@ -532,8 +574,8 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
             "<1> Primeira linha\\NSegunda linha".to_string(),
         );
 
-        let translator = FakeTranslator::new(responses);
-        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
+        let translator = Arc::new(FakeTranslator::new(responses));
+        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Primeira linha"));
@@ -550,8 +592,8 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
             "<1> translated1\n<2> translated2".to_string(),
         );
 
-        let translator = FakeTranslator::new(responses);
-        translate_ass(ass, "pt-BR", Some("en"), &translator)
+        let translator = Arc::new(FakeTranslator::new(responses));
+        translate_ass(ass, "pt-BR", Some("en"), 1, translator.clone() as Arc<dyn Translator>)
             .await
             .unwrap();
 
@@ -570,8 +612,8 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,First line\NSecond line
             "<1> translated1\n<2> translated2".to_string(),
         );
 
-        let translator = FakeTranslator::new(responses);
-        translate_ass(ass, "pt-BR", None, &translator)
+        let translator = Arc::new(FakeTranslator::new(responses));
+        translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>)
             .await
             .unwrap();
 
@@ -657,12 +699,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         // First call: returns broken output (missing <2>)
         // Second call: returns correct output
-        let translator = FakeTranslator::with_sequential_responses(vec![
+        let translator = Arc::new(FakeTranslator::with_sequential_responses(vec![
             "<1> Olá mundo".to_string(),           // missing <2>
             "<1> Olá mundo\n<2> Adeus mundo".to_string(), // correct
-        ]);
+        ]));
 
-        let result = translate_ass(ass, "pt-BR", None, &translator).await.unwrap();
+        let result = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>).await.unwrap();
         let rendered = result.render();
 
         assert!(rendered.contains("Olá mundo"));
@@ -678,14 +720,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         let ass = AssSubtitle::parse(SIMPLE_ASS).unwrap();
 
         // Always returns broken output (missing <2>)
-        let translator = FakeTranslator::with_sequential_responses(vec![
+        let translator = Arc::new(FakeTranslator::with_sequential_responses(vec![
             "<1> Olá mundo".to_string(),
             "<1> Olá mundo".to_string(),
             "<1> Olá mundo".to_string(),
             "<1> Olá mundo".to_string(), // 4 attempts total (1 initial + 3 retries)
-        ]);
+        ]));
 
-        let err = translate_ass(ass, "pt-BR", None, &translator)
+        let err = translate_ass(ass, "pt-BR", None, 1, translator.clone() as Arc<dyn Translator>)
             .await
             .unwrap_err();
 
@@ -762,5 +804,51 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         // Should fall back to empty vec on corrupt JSON
         assert!(completed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pipeline_translates_concurrently() {
+        // Build ASS with 300 cues → 2 chunks at 200 lines/chunk
+        let mut lines = vec![
+            "[Script Info]".to_string(),
+            "Title: Concurrent".to_string(),
+            "ScriptType: v4.00+".to_string(),
+            "".to_string(),
+            "[V4+ Styles]".to_string(),
+            "Format: Name, Fontname, Fontsize".to_string(),
+            "Style: Default,Arial,20".to_string(),
+            "".to_string(),
+            "[Events]".to_string(),
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+                .to_string(),
+        ];
+        for i in 1..=300 {
+            lines.push(format!(
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,line {i}",
+                i, i + 1,
+            ));
+        }
+        let ass = AssSubtitle::parse(&lines.join("\n")).unwrap();
+        let translator = Arc::new(FakeTranslator::new(std::collections::HashMap::new()));
+
+        // Translate with max_concurrent=2 (both chunks in parallel)
+        let result = translate_ass(
+            ass,
+            "pt-BR",
+            None,
+            2,
+            translator.clone() as Arc<dyn Translator>,
+        )
+        .await
+        .unwrap();
+
+        let rendered = result.render();
+        for i in 1..=300 {
+            assert!(rendered.contains(&format!("line {i}")), "missing cue {i}");
+        }
+
+        // Both chunks should have been translated
+        let texts = translator.received_texts();
+        assert_eq!(texts.len(), 2);
     }
 }

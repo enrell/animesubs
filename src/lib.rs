@@ -7,10 +7,11 @@
 //! ## Quick start (library)
 //!
 //! ```no_run
-//! use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator};
+//! use std::sync::Arc;
+//! use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator, Translator};
 //!
 //! # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-//! let translator = OllamaTranslator::new("llama3.1")?;
+//! let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
 //! translate_mkv(
 //!     TranslateMkvOptions {
 //!         input: "/media/anime/episode.mkv".into(),
@@ -20,8 +21,9 @@
 //!         dry_run: false,
 //!         source_language: None,
 //!         resume: false,
+//!         max_concurrent: 1,
 //!     },
-//!     &translator,
+//!     translator,
 //! ).await?;
 //! # Ok(())
 //! # }

@@ -61,6 +61,9 @@ enum Command {
 
         #[arg(long, help = "Save progress and skip already-translated files on restart")]
         resume: bool,
+
+        #[arg(long, default_value = "1", help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, openai/openrouter/gemini: 2)")]
+        parallel: usize,
     },
     TranslateAss {
         #[arg(short, long)]
@@ -110,13 +113,16 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             source_lang,
         } => {
             let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, api_key)?;
+            let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
+                std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
             let ass = AssSubtitle::parse(&source)?;
             let translated = translate_ass(
                 ass,
                 &to,
                 source_lang.as_deref(),
-                &*translator,
+                1,
+                translator,
             )
             .await?;
             tokio::fs::write(&output, translated.render()).await?;
@@ -136,8 +142,11 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             dry_run,
             source_lang,
             resume,
+            parallel,
         } => {
             let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, api_key)?;
+            let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
+                std::sync::Arc::from(translator);
             translate_mkv(
                 TranslateMkvOptions {
                     input,
@@ -147,8 +156,9 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     dry_run,
                     source_language: source_lang,
                     resume,
+                    max_concurrent: parallel,
                 },
-                &*translator,
+                translator,
             )
             .await
         }
