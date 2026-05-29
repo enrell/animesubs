@@ -6,7 +6,7 @@ Guide for AI coding agents working on psyche-subtitle-toolkit.
 
 ```sh
 cargo check                                      # compilation check
-cargo test                                       # run all tests (48 unit + integration)
+cargo test                                       # run all tests (76 unit + integration)
 cargo clippy --all-targets --all-features -- -D warnings  # strict lint
 cargo build --release                            # release binary
 cargo run -- inspect <mkv>                       # inspect MKV tracks
@@ -148,13 +148,13 @@ mod tests {
 
 ## Testing
 
-### Test Categories (48 tests total)
+### Test Categories (76 tests total)
 
 | Category | Count | Location | What they test |
 |---|---|---|---|
 | Subtitle parsing | 2 | `subtitles/ass.rs` | ASS parse + render |
 | Structured text | 15 | `subtitles/structured.rs` | Numbered format, tag strip/reinject, chunking |
-| Pipeline integration | 7 | `pipeline.rs` | Full subtitle processing with FakeTranslator |
+| Pipeline integration | 16 | `pipeline.rs` | Full subtitle processing, retry, dry-run, resume with FakeTranslator |
 | Provider mocks | 5-6 each | `translation/*.rs` | HTTP contracts per provider |
 | Doc-tests | 6 | `lib.rs` + provider files | Compile-check public examples |
 
