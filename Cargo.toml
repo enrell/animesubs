@@ -1,12 +1,12 @@
 [package]
 name = "psyche-subtitle-toolkit"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
-description = "Extract, translate, and mux ASS subtitles in MKV files via pluggable translation providers"
+description = "Extract, translate, and mux ASS/SRT/VTT/PGS subtitles in MKV files via pluggable translation providers"
 repository = "https://github.com/enrell/psyche-subtitle-toolkit"
 readme = "README.md"
-keywords = ["subtitle", "mkv", "translation", "ass", "anime"]
+keywords = ["subtitle", "mkv", "translation", "ass", "ocr"]
 categories = ["command-line-utilities", "multimedia::video"]
 
 [dev-dependencies]
@@ -15,6 +15,11 @@ wiremock = "0.6"
 [dependencies]
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
+image = "0.25"
+imageproc = "0.25"
+libc = "0.2"
+ocr-rs = "2.2"
+pgs-rs = "0.1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

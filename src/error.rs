@@ -62,6 +62,10 @@ pub enum SubtitleToolkitError {
         provider: &'static str,
         message: String,
     },
+
+    /// OCR processing error.
+    #[error("OCR error: {message}")]
+    Ocr { message: String },
 }
 
 /// Convenience alias for `Result<T, SubtitleToolkitError>`.

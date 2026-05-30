@@ -90,12 +90,16 @@
 //! 9. **Reinject tags** — Original override tags prepended back
 //! 10. **Mux** — `mkvmerge` replaces the original subtitle track in-place
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+// SAFETY: ocr.rs uses libc::dup/dup2 to suppress MNN runtime stderr diagnostics.
+// This is the only unsafe block in the crate.
 
 /// Error types for the subtitle toolkit.
 pub mod error;
 /// MKV container inspection and manipulation (mkvmerge/mkvextract wrappers).
 pub mod media;
+/// OCR pipeline for PGS (bitmap) subtitles via PaddleOCR.
+pub mod ocr;
 /// Translation pipeline: MKV full-pipeline and subtitle-only translation.
 pub mod pipeline;
 mod retry;
@@ -106,6 +110,9 @@ pub mod translation;
 
 // Error types
 pub use error::{Result, SubtitleToolkitError};
+
+// OCR
+pub use ocr::{OcrConfig, OcrLanguage, ocr_pgs_to_srt};
 
 // MKV inspection
 pub use media::mkv::{

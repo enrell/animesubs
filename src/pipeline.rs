@@ -11,6 +11,7 @@ use crate::media::mkv::{
     select_subtitle_track,
 };
 use crate::retry::retry_async;
+use crate::ocr::{OcrConfig, ocr_pgs_to_srt};
 use crate::subtitles::ass::AssSubtitle;
 use crate::subtitles::model::SubtitleDocument;
 use crate::subtitles::srt::SrtSubtitle;
@@ -101,13 +102,48 @@ async fn translate_one(
     let (track, format) = select_subtitle_track(&info, options.track_id)
         .ok_or_else(|| SubtitleToolkitError::NoSubtitleTrack { path: file.clone() })?;
 
+    let temp_dir = tempdir()?;
+
+    // PGS requires special handling: extract .sup, OCR to SRT, then translate
+    if format == SubtitleFormat::Pgs {
+        let sup_path = temp_dir.path().join("source.sup");
+        let translated_path = temp_dir.path().join("translated.srt");
+
+        eprintln!("[translate] {} (PGS → OCR)", file.display());
+        extract_subtitle(&file, track.id, &sup_path).await?;
+
+        if options.dry_run {
+            println!("[dry-run] {}: PGS bitmap subtitle (requires OCR)", file.display());
+            return Ok(());
+        }
+
+        let srt_text = ocr_pgs_to_srt(&sup_path, &OcrConfig::default()).await?;
+        let srt = SrtSubtitle::parse(&srt_text)?;
+
+        eprintln!("[translate] OCR extracted {} cues, translating", srt.document().cues.len());
+        let translated = translate_srt(
+            srt,
+            &options.target_language,
+            options.max_concurrent,
+            translator,
+        )
+        .await?;
+
+        eprintln!("[translate] muxing translated subtitle");
+        tokio::fs::write(&translated_path, translated.render()).await?;
+        mux_subtitle_in_place(&file, track.id, &translated_path, &options.target_language)
+            .await?;
+        eprintln!("[translate] done: {}", file.display());
+        return Ok(());
+    }
+
     let ext = match format {
         SubtitleFormat::Ass => "ass",
         SubtitleFormat::Srt => "srt",
         SubtitleFormat::Vtt => "vtt",
+        SubtitleFormat::Pgs => unreachable!(),
     };
 
-    let temp_dir = tempdir()?;
     let extracted_path = temp_dir.path().join(format!("source.{ext}"));
     let translated_path = temp_dir.path().join(format!("translated.{ext}"));
 
@@ -115,6 +151,7 @@ async fn translate_one(
         SubtitleFormat::Ass => "ASS",
         SubtitleFormat::Srt => "SRT",
         SubtitleFormat::Vtt => "VTT",
+        SubtitleFormat::Pgs => unreachable!(),
     };
     eprintln!("[translate] {} ({})", file.display(), format_label);
     extract_subtitle(&file, track.id, &extracted_path).await?;
@@ -170,6 +207,7 @@ async fn translate_one(
             .await?
             .render()
         }
+        SubtitleFormat::Pgs => unreachable!(),
     };
 
     eprintln!("[translate] muxing translated subtitle");

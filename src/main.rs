@@ -285,7 +285,11 @@ async fn inspect(input: PathBuf) -> psyche_subtitle_toolkit::Result<()> {
     let info = inspect_mkv(&input).await?;
 
     for track in &info.tracks {
-        let marker = if track.is_ass_subtitle() || track.is_srt_subtitle() || track.is_vtt_subtitle() {
+        let marker = if track.is_ass_subtitle()
+            || track.is_srt_subtitle()
+            || track.is_vtt_subtitle()
+            || track.is_pgs_subtitle()
+        {
             "*"
         } else {
             " "
