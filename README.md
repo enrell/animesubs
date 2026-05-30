@@ -1,6 +1,6 @@
 # psyche-subtitle-toolkit
 
-Extract, translate, and mux ASS, SRT, WebVTT, and PGS (bitmap) subtitles in MKV files. Built for Psyche but usable as a standalone CLI or Rust library.
+Extract, translate, and mux ASS, SRT, WebVTT, and PGS (bitmap) subtitles in MKV files. Usable as a standalone CLI or Rust library.
 
 No cloud required. No telemetry. Every translation provider is opt-in.
 

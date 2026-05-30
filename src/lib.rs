@@ -1,7 +1,7 @@
 //! # psyche-subtitle-toolkit
 //!
 //! Extract, translate, and mux ASS subtitles in MKV files.
-//! Built for Psyche but usable as a standalone CLI or library.
+//! Usable as a standalone CLI or library for media server integration.
 //!
 //! No cloud required. No telemetry. Every translation provider is opt-in.
 //!

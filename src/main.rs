@@ -15,7 +15,7 @@ use psyche_subtitle_toolkit::translation::openrouter::OpenRouterTranslator;
 
 #[derive(Debug, Parser)]
 #[command(name = "psyche-subtitle-toolkit")]
-#[command(about = "Translate and mux local MKV subtitles for Psyche")]
+#[command(about = "Translate and mux local MKV subtitles")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
