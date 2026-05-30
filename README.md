@@ -1,12 +1,12 @@
 # psyche-subtitle-toolkit
 
-Extract, translate, and mux ASS, SRT, and WebVTT subtitles in MKV files. Built for Psyche but usable as a standalone CLI or Rust library.
+Extract, translate, and mux ASS, SRT, WebVTT, and PGS (bitmap) subtitles in MKV files. Built for Psyche but usable as a standalone CLI or Rust library.
 
 No cloud required. No telemetry. Every translation provider is opt-in.
 
 ## Features
 
-- Extract ASS, SRT, and WebVTT subtitle tracks from MKV files via mkvmerge/mkvextract
+- Extract ASS, SRT, WebVTT, and PGS subtitle tracks from MKV files via mkvmerge/mkvextract
 - Translate subtitle dialogue through 7 pluggable providers
 - Protect ASS override tags (`{\pos(...)}`, `{\an7}`, etc.) during translation
 - Automatic chunking (200 lines per request) for LLM context limits
@@ -15,6 +15,7 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 - Mux translated subtitles back into the MKV, replacing the original track
 - Process single files or entire directories
 - Translate standalone `.ass`, `.srt`, and `.vtt` files without MKV (via `translate-ass` subcommand)
+- OCR PGS bitmap subtitles via PaddleOCR PP-OCRv5 (auto-downloads models on first run)
 - Resume interrupted translations with `--resume`
 
 ## Supported Providers
@@ -215,13 +216,19 @@ impl Translator for MyTranslator {
 ## Testing
 
 ```sh
-cargo test           # 101 unit + 12 doc-tests
+cargo test           # 115 unit + 12 doc-tests
 cargo clippy -- -D warnings
 ```
 
 Provider tests use `wiremock` to mock HTTP endpoints -- no real API calls.
 
 ## Release Notes
+
+### v0.3.0
+
+- **PGS OCR** — bitmap subtitle recognition via PaddleOCR PP-OCRv5 (auto-downloads models)
+- PGS track auto-detection in MKV files
+- New dependencies: `pgs-rs`, `ocr-rs`, `image`, `imageproc`
 
 ### v0.2.0
 

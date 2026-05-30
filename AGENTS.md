@@ -6,7 +6,7 @@ Guide for AI coding agents working on psyche-subtitle-toolkit.
 
 ```sh
 cargo check                                      # compilation check
-cargo test                                       # run all tests (105 unit + integration)
+cargo test                                       # run all tests (115 unit + integration)
 cargo clippy --all-targets --all-features -- -D warnings  # strict lint
 cargo build --release                            # release binary
 cargo run -- inspect <mkv>                       # inspect MKV tracks
@@ -20,7 +20,7 @@ All commands run from the project root.
 Rust crate + CLI that extracts ASS subtitles from MKV files, translates them via pluggable providers, and muxes the translation back in-place. Designed for Psyche but usable standalone.
 
 **Key constraints:**
-- ASS, SRT, and WebVTT subtitle formats
+- ASS, SRT, WebVTT, and PGS (via OCR) subtitle formats
 - In-place MKV remuxing (replaces original track, does not append)
 - Sequential file processing (one MKV at a time)
 - Local-first: no telemetry, no cloud required, every provider is opt-in
@@ -43,6 +43,7 @@ src/
     srt.rs            # SRT parser + renderer (SrtSubtitle)
     structured.rs     # numbered text format, tag stripping, chunking
     vtt.rs            # WebVTT parser + renderer (VttSubtitle)
+  ocr.rs            # PGS OCR pipeline via PaddleOCR PP-OCRv5
   translation/
     mod.rs            # Translator trait + TranslationRequest struct
     ollama.rs         # Ollama /api/generate provider
@@ -151,7 +152,7 @@ mod tests {
 
 ## Testing
 
-### Test Categories (105 tests total)
+### Test Categories (115 tests total)
 
 | Category | Count | Location | What they test |
 |---|---|---|---|
@@ -160,6 +161,7 @@ mod tests {
 | Pipeline integration | 22 | `pipeline.rs` | Full subtitle processing, retry, dry-run, resume, concurrency, race condition regression with FakeTranslator |
 | Provider mocks | 6-7 each | `translation/*.rs` | HTTP contracts per provider |
 | Doc-tests | 12 | `lib.rs` + provider files | Compile-check public examples |
+| OCR | 14 | `ocr.rs` | PGS display set rendering, text grouping, fragment repair, merging |
 
 ### Writing Provider Tests
 
