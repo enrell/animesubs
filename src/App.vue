@@ -203,7 +203,7 @@
 
                   <div class="protocol-form">
                     <n-form-item label="Target Language">
-                      <n-select v-model:value="targetLanguageModel" :options="languageOptions" />
+                      <n-input v-model:value="targetLanguageModel" placeholder="e.g. pt, en, es, ja" />
                     </n-form-item>
                     <n-form-item label="Subtitle Track">
                       <n-select v-model:value="translationOptions.subtitleTrack" :options="subtitleTrackOptions" placeholder="Auto-detect first available" />
