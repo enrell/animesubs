@@ -3,8 +3,6 @@ use crate::utils::*;
 use chrono;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
-use tauri::command;
 
 #[tauri::command]
 pub async fn backup_subtitle(
@@ -46,6 +44,7 @@ pub async fn backup_subtitle(
         track_index,
         Some(backup_path.to_string_lossy().to_string()),
         Some(format.to_string()),
+        Some(false),
         ffmpeg_path,
     )
     .await?;
@@ -137,7 +136,7 @@ pub async fn restore_subtitle(
 
     let temp_output = parent.join(format!("{}_restored.{}", stem, ext));
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args([
             "-i",
             &video_path,
@@ -182,7 +181,10 @@ pub async fn restore_subtitle(
 }
 
 #[tauri::command]
-pub async fn delete_backup(backup_path: String, video_path: String) -> Result<OperationResult, String> {
+pub async fn delete_backup(
+    backup_path: String,
+    video_path: String,
+) -> Result<OperationResult, String> {
     if Path::new(&backup_path).exists() {
         fs::remove_file(&backup_path)
             .map_err(|e| format!("Failed to delete backup file: {}", e))?;

@@ -2,8 +2,6 @@ use crate::models::*;
 use crate::utils::*;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
-use tauri::command;
 
 #[tauri::command]
 pub async fn embed_subtitle(
@@ -27,12 +25,20 @@ pub async fn embed_subtitle(
         .unwrap_or_else(|| "video".to_string());
     let ext = video_pathbuf
         .extension()
-        .map(|s| s.to_string_lossy().to_string())
+        .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_else(|| "mkv".to_string());
 
     let temp_output = parent.join(format!("{}_with_subs.{}", stem, ext));
 
     let (utf8_subtitle_path, temp_utf8_path) = convert_subtitle_to_utf8(&subtitle_path)?;
+
+    if use_mkvmerge && !is_mkv_container(&ext) {
+        eprintln!(
+            "mkvmerge only supports MKV output here, falling back to ffmpeg for embedding into {}",
+            ext
+        );
+        use_mkvmerge = false;
+    }
 
     if use_mkvmerge && mkvmerge_path.is_none() {
         eprintln!("mkvmerge not available, falling back to ffmpeg for embedding");
@@ -59,7 +65,7 @@ pub async fn embed_subtitle(
 
         let mkvmerge_bin = mkvmerge_path.unwrap_or_else(|| "mkvmerge".to_string());
 
-        let result = Command::new(&mkvmerge_bin)
+        let result = create_command(&mkvmerge_bin)
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to run mkvmerge: {}", e))?;
@@ -91,12 +97,7 @@ pub async fn embed_subtitle(
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
-    let sub_codec = match sub_ext.as_str() {
-        "ass" | "ssa" => "ass",
-        "srt" | "subrip" => "srt",
-        "vtt" | "webvtt" => "webvtt",
-        _ => "copy",
-    };
+    let sub_codec = resolve_ffmpeg_subtitle_codec(&ext, &sub_ext)?;
 
     let mut args = vec![
         "-i".to_string(),
@@ -134,7 +135,7 @@ pub async fn embed_subtitle(
     args.push("-y".to_string());
     args.push(temp_output.to_string_lossy().to_string());
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
@@ -213,7 +214,7 @@ pub async fn remove_subtitle_track(
         temp_output.to_string_lossy().to_string(),
     ]);
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;

@@ -33,6 +33,11 @@ export const defaultSettings: Settings = {
   keepOriginalTrack: true
 }
 
+export const settingsForStorage = (settings: Settings): Settings => ({
+  ...settings,
+  apiKey: ''
+})
+
 export const sharedLanguageOptions = [
   { label: 'Auto-detect', value: '' },
   { label: 'Japanese', value: 'ja' },
@@ -55,7 +60,11 @@ export const sharedLanguageOptions = [
 ]
 
 export const providerRequiresApiKey = (provider?: string | null): boolean => {
-  return provider === 'openai' || provider === 'gemini' || provider === 'openrouter'
+  return provider === 'openai'
+    || provider === 'gemini'
+    || provider === 'openrouter'
+    || provider === 'nvidia'
+    || provider === 'minimax'
 }
 
 export const hasUsableApiConfig = (settings?: Settings | null): boolean => {

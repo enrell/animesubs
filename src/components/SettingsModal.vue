@@ -2,13 +2,14 @@
   <n-modal
     v-model:show="showModal"
     preset="card"
-    :style="{ width: '600px' }"
-    title="Settings"
+    class="settings-modal"
+    :style="{ width: 'min(860px, calc(100vw - 28px))' }"
+    title="wired settings"
     :bordered="false"
     size="huge"
     :segmented="{ content: true, footer: 'soft' }"
   >
-    <n-tabs type="line" animated>
+    <n-tabs type="line" animated class="settings-tabs">
       <n-tab-pane name="api" tab="API Configuration">
         <n-space vertical size="large">
           <n-form-item label="Provider" label-placement="left">
@@ -72,8 +73,9 @@
                   <n-button size="small" @click="setPreset('gemini')">Gemini</n-button>
                   <n-button size="small" @click="setPreset('ollama')">Ollama</n-button>
                   <n-button size="small" @click="setPreset('lmstudio')">LM Studio</n-button>
+                  <n-button size="small" @click="setPreset('llamacpp')">llama.cpp</n-button>
                   <n-button size="small" @click="setPreset('openrouter')">OpenRouter</n-button>
-          <n-button size="small" @click="setPreset('nvidia')">NVIDIA NIM</n-button>
+                  <n-button size="small" @click="setPreset('nvidia')">NVIDIA NIM</n-button>
                 </n-space>
               </n-space>
             </n-collapse-item>
@@ -199,7 +201,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import {
   NModal,
   NTabs,
@@ -225,10 +227,12 @@ import {
   SaveOutline
 } from '@vicons/ionicons5'
 import { open } from '@tauri-apps/plugin-dialog'
+import { loadApiKey, saveApiKey } from '../api/animesubs'
 import {
   defaultSettings,
   providerRequiresApiKey,
   SETTINGS_STORAGE_KEY,
+  settingsForStorage,
   sharedLanguageOptions,
   type Settings
 } from '../config/settings'
@@ -258,6 +262,7 @@ const providerOptions = [
   { label: 'Google Gemini', value: 'gemini' },
   { label: 'Ollama (Local)', value: 'ollama' },
   { label: 'LM Studio (Local)', value: 'lmstudio' },
+  { label: 'llama.cpp (Local)', value: 'llamacpp' },
   { label: 'OpenRouter', value: 'openrouter' },
   { label: 'NVIDIA NIM', value: 'nvidia' },
   { label: 'MiniMax (Token Plan)', value: 'minimax' },
@@ -280,6 +285,10 @@ const providerPresets: Record<string, { endpoint: string; models: string[] }> = 
   lmstudio: {
     endpoint: 'http://localhost:1234/v1',
     models: []
+  },
+  llamacpp: {
+    endpoint: 'http://localhost:8080/v1',
+    models: ['local-model']
   },
   openrouter: {
     endpoint: 'https://openrouter.ai/api/v1',
@@ -410,12 +419,23 @@ const getApiKeyPlaceholder = (): string => {
     nvidia: 'nvapi-...',
     minimax: 'Bearer token from MiniMax Token Plan',
     lmstudio: '(optional)',
+    llamacpp: '(optional)',
     custom: 'API key'
   }
   return placeholders[settings.provider] || 'API key'
 }
 
-const onProviderChange = (provider: string) => {
+const loadProviderApiKey = async (provider: string) => {
+  try {
+    const result = await loadApiKey(provider)
+    settings.apiKey = result.data || ''
+  } catch (e) {
+    console.error('Failed to load API key:', e)
+    settings.apiKey = ''
+  }
+}
+
+const onProviderChange = async (provider: string) => {
   const preset = providerPresets[provider]
   if (preset) {
     settings.apiEndpoint = preset.endpoint
@@ -423,21 +443,22 @@ const onProviderChange = (provider: string) => {
       modelOptions.value = preset.models.map(m => ({ label: m, value: m }))
     }
   }
+  await loadProviderApiKey(provider)
 }
 
-const setPreset = (provider: string) => {
+const setPreset = async (provider: string) => {
   settings.provider = provider
-  onProviderChange(provider)
+  await onProviderChange(provider)
   message.info(`Configured for ${providerOptions.find(p => p.value === provider)?.label}`)
 }
 
 // Load settings from localStorage on mount
-const loadSettings = () => {
+const loadSettings = async () => {
   const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
   if (saved) {
     try {
       const parsed = JSON.parse(saved)
-      Object.assign(settings, defaultSettings, parsed)
+      Object.assign(settings, defaultSettings, parsed, { apiKey: '' })
       // Load cached models for provider
       const cachedModels = localStorage.getItem(`animesubs-models-${settings.provider}`)
       if (cachedModels) {
@@ -447,9 +468,12 @@ const loadSettings = () => {
       console.error('Failed to load settings:', e)
     }
   }
+  await loadProviderApiKey(settings.provider)
 }
 
-loadSettings()
+onMounted(() => {
+  void loadSettings()
+})
 
 const fetchModels = async () => {
   if (!settings.apiEndpoint) {
@@ -556,8 +580,9 @@ const selectFfmpegPath = async () => {
   }
 }
 
-const saveSettings = () => {
-  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+const saveSettings = async () => {
+  await saveApiKey(settings.provider, settings.apiKey)
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsForStorage(settings)))
   message.success('Settings saved')
   showModal.value = false
 }
@@ -570,3 +595,112 @@ const resetSettings = () => {
 
 defineExpose({ settings, getSystemPrompt })
 </script>
+
+<style scoped>
+.settings-modal {
+  font-family: var(--font-body, "Avenir Next", "Segoe UI", sans-serif);
+}
+
+.settings-modal :deep(.n-card) {
+  color: var(--wired-paper, #c8bd98);
+  border: 1px solid var(--wired-border-strong, rgba(224, 212, 168, 0.42));
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(28, 21, 29, 0.98), rgba(6, 5, 6, 0.98)),
+    radial-gradient(circle at 12% 0%, rgba(181, 68, 56, 0.18), transparent 20rem);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.72);
+}
+
+.settings-modal :deep(.n-card-header) {
+  border-bottom: 1px solid var(--wired-border, rgba(200, 189, 152, 0.22));
+  background:
+    repeating-linear-gradient(90deg, rgba(200, 189, 152, 0.04) 0 1px, transparent 1px 12px),
+    rgba(3, 3, 3, 0.36);
+}
+
+.settings-modal :deep(.n-card-header__main) {
+  color: var(--wired-paper-bright, #e0d4a8);
+  font-family: var(--font-wired, ui-monospace, monospace);
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.settings-modal :deep(.n-card__content) {
+  padding: 22px;
+}
+
+.settings-modal :deep(.n-card__footer) {
+  border-top: 1px solid var(--wired-border, rgba(200, 189, 152, 0.22));
+  background: rgba(3, 3, 3, 0.26);
+}
+
+.settings-tabs :deep(.n-tabs-tab__label),
+.settings-modal :deep(.n-form-item-label__text),
+.settings-modal :deep(.n-collapse-item__header-main) {
+  color: var(--wired-muted, #8d8064);
+  font-family: var(--font-wired, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-tabs :deep(.n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label) {
+  color: var(--wired-paper-bright, #e0d4a8);
+}
+
+.settings-tabs :deep(.n-tabs-bar) {
+  background: var(--wired-red, #b54438);
+}
+
+.settings-modal :deep(.n-button) {
+  border-radius: 0;
+  font-family: var(--font-wired, ui-monospace, monospace);
+  letter-spacing: 0.05em;
+}
+
+.settings-modal :deep(.n-button--primary-type) {
+  color: var(--wired-black, #030303) !important;
+  font-weight: 900;
+  background: var(--wired-paper, #c8bd98) !important;
+  border-color: var(--wired-paper, #c8bd98) !important;
+  box-shadow: 5px 5px 0 var(--wired-red-dark, #4d1716);
+}
+
+.settings-modal :deep(.n-base-selection),
+.settings-modal :deep(.n-input),
+.settings-modal :deep(.n-input-number),
+.settings-modal :deep(.n-input-number .n-input) {
+  border-radius: 0 !important;
+  background: rgba(3, 3, 3, 0.42) !important;
+}
+
+.settings-modal :deep(.n-base-selection .n-base-selection-label),
+.settings-modal :deep(.n-input-wrapper),
+.settings-modal :deep(.n-input__textarea-el),
+.settings-modal :deep(.n-input__input-el) {
+  color: var(--wired-paper, #c8bd98) !important;
+  font-family: var(--font-wired, ui-monospace, monospace) !important;
+}
+
+.settings-modal :deep(.n-collapse),
+.settings-modal :deep(.n-collapse-item) {
+  border-color: var(--wired-border, rgba(200, 189, 152, 0.22));
+}
+
+.settings-modal :deep(.n-checkbox__label),
+.settings-modal :deep(.n-text) {
+  color: var(--wired-paper, #c8bd98) !important;
+  font-family: var(--font-wired, ui-monospace, monospace);
+}
+
+.settings-modal :deep(.n-divider) {
+  --n-color: var(--wired-border, rgba(200, 189, 152, 0.22));
+}
+
+@media (max-width: 720px) {
+  .settings-modal :deep(.n-card__content) {
+    padding: 16px;
+  }
+}
+</style>

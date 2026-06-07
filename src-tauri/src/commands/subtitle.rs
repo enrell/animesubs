@@ -1,10 +1,7 @@
 use crate::models::*;
 use crate::utils::*;
 use regex::Regex;
-use std::fs;
 use std::path::Path;
-use std::process::Command;
-use tauri::command;
 
 #[tauri::command]
 pub async fn extract_subtitle(
@@ -12,6 +9,7 @@ pub async fn extract_subtitle(
     track_index: u32,
     output_path: Option<String>,
     format: Option<String>,
+    temporary: Option<bool>,
     ffmpeg_path: Option<String>,
 ) -> Result<ExtractResult, String> {
     let ffmpeg = get_ffmpeg_path(ffmpeg_path.clone());
@@ -27,6 +25,8 @@ pub async fn extract_subtitle(
 
     let output = if let Some(out) = output_path {
         Path::new(&out).to_path_buf()
+    } else if temporary.unwrap_or(false) {
+        build_temp_subtitle_path(&video_path, &format!("extract_track{}", track_index), &fmt)?
     } else {
         let video_pathbuf = Path::new(&video_path);
         let stem = video_pathbuf
@@ -38,7 +38,7 @@ pub async fn extract_subtitle(
         parent.join(format!("{}.{}.{}", stem, lang, fmt))
     };
 
-    let result = Command::new(&ffmpeg)
+    let result = create_command(&ffmpeg)
         .args([
             "-i",
             &video_path,
@@ -340,4 +340,85 @@ pub async fn parse_subtitle_file(file_path: String) -> Result<SubtitleData, Stri
 
     data.source_path = file_path;
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_srt_strips_tags_and_skips_music_lines() {
+        let content = r#"1
+00:00:01,000 --> 00:00:02,000
+<i>Hello there</i>
+
+2
+00:00:03,000 --> 00:00:04,000
+♪ la la la ♪
+
+3
+00:00:05,000 --> 00:00:06,500
+General Kenobi
+"#;
+
+        let data = parse_srt_file(content).unwrap();
+
+        assert_eq!(data.format, "srt");
+        assert_eq!(data.line_count, 2);
+        assert_eq!(data.lines[0].index, 0);
+        assert_eq!(data.lines[0].text, "Hello there");
+        assert_eq!(data.lines[0].start, "00:00:01,000");
+        assert_eq!(data.lines[0].end, "00:00:02,000");
+        assert_eq!(data.lines[1].text, "General Kenobi");
+    }
+
+    #[test]
+    fn parse_vtt_reads_cues_and_strips_inline_tags() {
+        let content = r#"WEBVTT
+
+00:00:01.000 --> 00:00:02.000 align:start
+<c.yellow>Hello</c>
+
+00:00:03.000 --> 00:00:04.000
+World
+"#;
+
+        let data = parse_vtt_file(content).unwrap();
+
+        assert_eq!(data.format, "vtt");
+        assert_eq!(data.line_count, 2);
+        assert_eq!(data.lines[0].text, "Hello");
+        assert_eq!(data.lines[0].end, "00:00:02.000");
+        assert_eq!(data.lines[1].text, "World");
+    }
+
+    #[test]
+    fn parse_ass_preserves_dialogue_metadata_and_skips_sign_styles() {
+        let content = r#"[Script Info]
+Title: Example
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, Encoding
+Style: Default,Arial,20,&H00FFFFFF,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,Alice,0,0,0,,{\i1}Hello\Nthere
+Dialogue: 0,0:00:03.00,0:00:04.00,Signs,,0,0,0,,Shop sign
+Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,♪ la la ♪
+"#;
+
+        let data = parse_ass_file(content).unwrap();
+
+        assert_eq!(data.format, "ass");
+        assert_eq!(data.line_count, 1);
+        assert_eq!(data.lines[0].text, "Hello\nthere");
+        assert_eq!(
+            data.lines[0].original_with_formatting,
+            "{\\i1}Hello\\Nthere"
+        );
+        assert_eq!(data.lines[0].style.as_deref(), Some("Default"));
+        assert_eq!(data.lines[0].name.as_deref(), Some("Alice"));
+        assert!(data.ass_header.unwrap().contains("[Events]"));
+    }
 }

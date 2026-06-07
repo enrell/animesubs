@@ -104,3 +104,49 @@ pub struct LLMConfig {
     pub model: String,
     pub system_prompt: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationJobRequest {
+    pub video_paths: Vec<String>,
+    pub config: LLMConfig,
+    pub source_lang: String,
+    pub target_lang: String,
+    pub output_format: String,
+    pub output_directory: Option<String>,
+    pub ffmpeg_path: Option<String>,
+    pub subtitle_track: Option<u32>,
+    pub embed_subtitles: bool,
+    pub use_mkvmerge: bool,
+    pub auto_backup: bool,
+    pub keep_original_track: bool,
+    pub batch_size: usize,
+    pub concurrency: usize,
+    pub request_delay: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationJobProgress {
+    pub current_file: usize,
+    pub total_files: usize,
+    pub progress: f64,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationJobOutput {
+    pub video_path: String,
+    pub subtitle_path: Option<String>,
+    pub embedded: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationJobResult {
+    pub completed_files: usize,
+    pub total_files: usize,
+    pub failures: Vec<String>,
+    pub outputs: Vec<TranslationJobOutput>,
+}

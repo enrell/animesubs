@@ -2,8 +2,6 @@ use crate::models::*;
 use crate::utils::*;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
-use tauri::command;
 
 #[tauri::command]
 pub async fn get_video_info(
@@ -12,7 +10,7 @@ pub async fn get_video_info(
 ) -> Result<VideoInfo, String> {
     let ffprobe = get_ffprobe_path(ffmpeg_path);
 
-    let output = Command::new(&ffprobe)
+    let output = create_command(&ffprobe)
         .args([
             "-v",
             "quiet",

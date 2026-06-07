@@ -3,23 +3,27 @@
     <n-message-provider>
       <n-notification-provider>
         <n-dialog-provider>
-          <div class="app-container">
-            <!-- Header -->
-            <header class="app-header">
-              <div class="header-left">
-                <div class="logo">
-                  <n-icon size="28" color="var(--primary-color)">
-                    <language-outline />
-                  </n-icon>
-                  <span class="logo-text">AnimeSubs</span>
+          <div class="app-shell" :class="{ 'is-dragging': isDragging }">
+            <header class="wired-header">
+              <div class="identity-block">
+                <div>
+                  <p class="eyebrow">animesubs://wired</p>
+                  <h1>subtitle protocol</h1>
                 </div>
               </div>
-              <div class="header-right">
+
+              <div class="status-strip" aria-label="Runtime status">
+                <span class="status-pill">provider {{ providerLabel }}</span>
+                <span class="status-pill truncate">model {{ modelLabel }}</span>
+                <span class="status-pill" :class="ffmpegStatusClass">ffmpeg {{ ffmpegStatusLabel }}</span>
+              </div>
+
+              <div class="header-actions">
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <n-button quaternary circle @click="toggleTheme">
+                    <n-button quaternary circle class="icon-button" @click="toggleTheme">
                       <template #icon>
-                        <n-icon size="20">
+                        <n-icon size="18">
                           <sunny-outline v-if="isDark" />
                           <moon-outline v-else />
                         </n-icon>
@@ -30,11 +34,9 @@
                 </n-tooltip>
                 <n-tooltip trigger="hover">
                   <template #trigger>
-                    <n-button quaternary circle @click="showSettings = true">
+                    <n-button quaternary circle class="icon-button" @click="showSettings = true">
                       <template #icon>
-                        <n-icon size="20">
-                          <settings-outline />
-                        </n-icon>
+                        <n-icon size="18"><settings-outline /></n-icon>
                       </template>
                     </n-button>
                   </template>
@@ -43,331 +45,232 @@
               </div>
             </header>
 
-            <!-- Main Content -->
-            <main class="app-main">
-              <div class="main-content">
-                <!-- FFmpeg Status Alert -->
-                <n-alert 
-                  v-if="ffmpegStatus && !ffmpegStatus.success" 
-                  type="warning" 
-                  title="FFmpeg Not Found"
-                  closable
-                >
-                  FFmpeg is required for subtitle extraction. Please install FFmpeg or configure its path in Settings.
-                </n-alert>
-
-                <!-- Drop Zone -->
-                <n-card 
-                  class="drop-zone" 
-                  :class="{ 'drop-zone-active': isDragging }"
-                  @dragover.prevent="isDragging = true"
-                  @dragleave.prevent="isDragging = false"
-                  @drop.prevent="handleDrop"
-                >
-                  <div class="drop-zone-content">
-                    <img src="/icon.png" alt="AnimeSubs" class="drop-icon" />
-                    <h2>Drop video files or folder here</h2>
-                    <p>Supports MKV, MP4, WebM, AVI, and other FFmpeg formats</p>
-                    <n-space>
-                      <n-button type="primary" size="large" @click="selectFiles" :loading="loadingFiles">
-                        <template #icon>
-                          <n-icon><document-outline /></n-icon>
-                        </template>
-                        Select Files
-                      </n-button>
-                      <n-button size="large" @click="selectFolder" :loading="loadingFiles">
-                        <template #icon>
-                          <n-icon><folder-open-outline /></n-icon>
-                        </template>
-                        Select Folder
-                      </n-button>
-                    </n-space>
+            <main class="wired-main">
+              <section
+                class="hero-port"
+                :class="{ 'drop-zone-active': isDragging }"
+                @dragover.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @drop.prevent="handleDrop"
+              >
+                <div class="hero-copy">
+                  <p class="terminal-line">connect_media_packet</p>
+                  <h2>Drop video files into the Wired.</h2>
+                  <p>
+                    Extract, translate, backup, and embed subtitle tracks without leaving the node.
+                  </p>
+                  <div class="hero-actions">
+                    <n-button type="primary" size="large" class="primary-command" @click="selectFiles" :loading="loadingFiles">
+                      <template #icon><n-icon><document-outline /></n-icon></template>
+                      SELECT FILES
+                    </n-button>
+                    <n-button size="large" class="secondary-command" @click="selectFolder" :loading="loadingFiles">
+                      <template #icon><n-icon><folder-open-outline /></n-icon></template>
+                      SCAN FOLDER
+                    </n-button>
                   </div>
-                </n-card>
+                </div>
 
-                <!-- Selected Files List -->
-                <n-card v-if="selectedFiles.length > 0" class="files-card">
-                  <template #header>
-                    <n-space align="center" justify="space-between" style="width: 100%">
-                      <span>Selected Files ({{ selectedFiles.length }})</span>
-                      <n-button text type="error" @click="clearFiles">
-                        <template #icon>
-                          <n-icon><trash-outline /></n-icon>
-                        </template>
-                        Clear All
-                      </n-button>
-                    </n-space>
-                  </template>
-                  
-                  <n-scrollbar style="max-height: 400px">
+              </section>
+
+              <n-alert
+                v-if="ffmpegStatus && !ffmpegStatus.success"
+                type="warning"
+                title="FFmpeg signal missing"
+                closable
+                class="wired-alert"
+              >
+                FFmpeg is required for subtitle extraction. Install FFmpeg or configure its path in Settings.
+              </n-alert>
+
+              <section v-if="selectedFiles.length > 0" class="workspace-grid">
+                <div class="queue-panel wired-panel">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="eyebrow">media queue</p>
+                      <h3>{{ selectedFiles.length }} packets attached</h3>
+                    </div>
+                    <n-button text type="error" class="clear-command" @click="clearFiles">
+                      <template #icon><n-icon><trash-outline /></n-icon></template>
+                      CLEAR
+                    </n-button>
+                  </div>
+
+                  <div class="queue-stats">
+                    <div><strong>{{ readyFileCount }}</strong><span>ready</span></div>
+                    <div><strong>{{ totalSubtitleTracks }}</strong><span>tracks</span></div>
+                    <div><strong>{{ totalBackups }}</strong><span>backups</span></div>
+                  </div>
+
+                  <n-scrollbar class="queue-scroll">
                     <div class="file-list">
-                      <div v-for="(file, index) in selectedFiles" :key="file.path" class="file-item">
+                      <article v-for="(file, index) in selectedFiles" :key="file.path" class="file-item">
                         <div class="file-header">
-                          <n-space align="center">
-                            <n-icon size="20" color="var(--primary-color)">
-                              <videocam-outline />
-                            </n-icon>
-                            <span class="file-name">{{ file.name }}</span>
+                          <div class="file-title-row">
+                            <n-icon size="18"><videocam-outline /></n-icon>
+                            <div class="file-title-wrap">
+                              <h4>{{ file.name }}</h4>
+                              <p>{{ file.path }}</p>
+                            </div>
+                          </div>
+                          <div class="file-actions">
                             <n-spin v-if="file.loading" size="small" />
-                            <n-tag v-if="file.videoInfo" size="small" :bordered="false" type="info">
+                            <n-tag v-if="file.videoInfo" size="small" :bordered="false" class="wired-tag">
                               {{ file.videoInfo.subtitle_tracks.length }} subs
                             </n-tag>
-                            <n-tag v-if="file.backups.length > 0" size="small" :bordered="false" type="success">
-                              {{ file.backups.length }} backups
-                            </n-tag>
-                          </n-space>
-                          <n-button text type="error" @click="removeFile(index)">
-                            <template #icon>
-                              <n-icon><close-outline /></n-icon>
-                            </template>
-                          </n-button>
-                        </div>
-                        
-                        <!-- Subtitle Tracks -->
-                        <div v-if="file.videoInfo && file.videoInfo.subtitle_tracks.length > 0" class="subtitle-tracks">
-                          <div 
-                            v-for="track in file.videoInfo.subtitle_tracks" 
-                            :key="track.index" 
-                            class="subtitle-track"
-                          >
-                            <n-space align="center" justify="space-between" style="width: 100%">
-                              <n-space align="center" :size="8">
-                                <n-tag size="small" :type="track.default ? 'primary' : 'default'">
-                                  {{ track.language || 'und' }}
-                                </n-tag>
-                                <span class="track-info">
-                                  {{ track.title || `Track ${track.index}` }} 
-                                  <span class="track-codec">({{ track.codec }})</span>
-                                </span>
-                                <n-tag v-if="track.forced" size="tiny" type="warning">Forced</n-tag>
-                              </n-space>
-                              <n-space :size="4">
-                                <n-tooltip trigger="hover">
-                                  <template #trigger>
-                                    <n-button 
-                                      size="tiny" 
-                                      quaternary 
-                                      @click="extractSubtitle(file, track.index)"
-                                      :loading="extractingSubtitle === file.path"
-                                    >
-                                      <template #icon>
-                                        <n-icon><download-outline /></n-icon>
-                                      </template>
-                                    </n-button>
-                                  </template>
-                                  Extract subtitle
-                                </n-tooltip>
-                                <n-tooltip trigger="hover">
-                                  <template #trigger>
-                                    <n-button 
-                                      size="tiny" 
-                                      quaternary 
-                                      type="success"
-                                      @click="backupSubtitle(file, track.index)"
-                                      :loading="backingUp === file.path"
-                                    >
-                                      <template #icon>
-                                        <n-icon><shield-checkmark-outline /></n-icon>
-                                      </template>
-                                    </n-button>
-                                  </template>
-                                  Backup subtitle
-                                </n-tooltip>
-                              </n-space>
-                            </n-space>
+                            <n-button text type="error" @click="removeFile(index)">
+                              <template #icon><n-icon><close-outline /></n-icon></template>
+                            </n-button>
                           </div>
                         </div>
 
-                        <!-- No subtitles warning -->
+                        <div v-if="file.videoInfo && file.videoInfo.subtitle_tracks.length > 0" class="subtitle-tracks">
+                          <div v-for="track in file.videoInfo.subtitle_tracks" :key="track.index" class="subtitle-track">
+                            <div class="track-meta">
+                              <span class="track-lang">{{ track.language || 'und' }}</span>
+                              <span>{{ track.title || `Track ${track.index}` }}</span>
+                              <span class="track-codec">{{ track.codec }}</span>
+                              <span v-if="track.default" class="track-flag">default</span>
+                              <span v-if="track.forced" class="track-flag warn">forced</span>
+                            </div>
+                            <div class="track-actions">
+                              <n-tooltip trigger="hover">
+                                <template #trigger>
+                                  <n-button size="tiny" quaternary @click="extractSubtitle(file, track.index)" :loading="extractingSubtitle === file.path">
+                                    <template #icon><n-icon><download-outline /></n-icon></template>
+                                  </n-button>
+                                </template>
+                                Extract subtitle
+                              </n-tooltip>
+                              <n-tooltip trigger="hover">
+                                <template #trigger>
+                                  <n-button size="tiny" quaternary type="success" @click="backupSubtitle(file, track.index)" :loading="backingUp === file.path">
+                                    <template #icon><n-icon><shield-checkmark-outline /></n-icon></template>
+                                  </n-button>
+                                </template>
+                                Backup subtitle
+                              </n-tooltip>
+                            </div>
+                          </div>
+                        </div>
+
                         <div v-else-if="file.videoInfo && file.videoInfo.subtitle_tracks.length === 0" class="no-subs-warning">
-                          <n-icon size="16" color="var(--warning-color)">
-                            <information-circle-outline />
-                          </n-icon>
+                          <n-icon size="16"><information-circle-outline /></n-icon>
                           <span>No subtitle tracks found</span>
                         </div>
 
-                        <!-- Error -->
                         <div v-if="file.error" class="file-error">
                           <n-text type="error" depth="3">{{ file.error }}</n-text>
                         </div>
 
-                        <!-- Backups -->
                         <div v-if="file.backups.length > 0" class="backups-section">
-                          <n-divider style="margin: 8px 0; font-size: 12px;">Backups</n-divider>
+                          <n-divider class="wired-divider">Backups</n-divider>
                           <div v-for="backup in file.backups" :key="backup.backup_path" class="backup-item">
-                            <n-space align="center" justify="space-between" style="width: 100%">
-                              <n-space align="center" :size="8">
-                                <n-icon size="14" color="var(--success-color)">
-                                  <shield-checkmark-outline />
-                                </n-icon>
-                                <span class="backup-name">Track {{ backup.track_index }} - {{ backup.created_at }}</span>
-                                <n-tag size="tiny">{{ backup.format }}</n-tag>
-                              </n-space>
-                              <n-space :size="4">
-                                <n-popconfirm @positive-click="restoreBackup(file, backup)">
-                                  <template #trigger>
-                                    <n-button size="tiny" quaternary type="warning">
-                                      <template #icon>
-                                        <n-icon><arrow-undo-outline /></n-icon>
-                                      </template>
-                                    </n-button>
-                                  </template>
-                                  Restore this backup? This will replace the current subtitle track.
-                                </n-popconfirm>
-                                <n-popconfirm @positive-click="deleteBackup(file, backup)">
-                                  <template #trigger>
-                                    <n-button size="tiny" quaternary type="error">
-                                      <template #icon>
-                                        <n-icon><trash-outline /></n-icon>
-                                      </template>
-                                    </n-button>
-                                  </template>
-                                  Delete this backup?
-                                </n-popconfirm>
-                              </n-space>
-                            </n-space>
+                            <span>track {{ backup.track_index }} / {{ backup.format }} / {{ backup.created_at }}</span>
+                            <div class="backup-actions">
+                              <n-popconfirm @positive-click="restoreBackup(file, backup)">
+                                <template #trigger>
+                                  <n-button size="tiny" quaternary type="warning">
+                                    <template #icon><n-icon><arrow-undo-outline /></n-icon></template>
+                                  </n-button>
+                                </template>
+                                Restore this backup? This will replace the current subtitle track.
+                              </n-popconfirm>
+                              <n-popconfirm @positive-click="deleteBackup(file, backup)">
+                                <template #trigger>
+                                  <n-button size="tiny" quaternary type="error">
+                                    <template #icon><n-icon><trash-outline /></n-icon></template>
+                                  </n-button>
+                                </template>
+                                Delete this backup?
+                              </n-popconfirm>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      </article>
                     </div>
                   </n-scrollbar>
-                </n-card>
+                </div>
 
-                <!-- Options Card -->
-                <n-card v-if="selectedFiles.length > 0" class="options-card">
-                  <template #header>Translation Options</template>
-                  
-                  <n-space vertical size="large">
-                    <n-grid :cols="2" :x-gap="24" :y-gap="16">
-                      <n-gi>
-                        <n-form-item label="Target Language">
-                          <n-select
-                            v-model:value="targetLanguageModel"
-                            :options="languageOptions"
-                          />
-                        </n-form-item>
-                      </n-gi>
-                      <n-gi>
-                        <n-form-item label="Subtitle Track">
-                          <n-select
-                            v-model:value="translationOptions.subtitleTrack"
-                            :options="subtitleTrackOptions"
-                            placeholder="Auto-detect (first available)"
-                          />
-                        </n-form-item>
-                      </n-gi>
-                    </n-grid>
+                <aside class="protocol-panel wired-panel">
+                  <div class="panel-heading">
+                    <div>
+                      <p class="eyebrow">translation protocol</p>
+                      <h3>{{ targetLanguageLabel }}</h3>
+                    </div>
+                    <span class="status-dot" :class="{ online: canStartTranslation }"></span>
+                  </div>
 
-                    <n-space>
+                  <div class="protocol-form">
+                    <n-form-item label="Target Language">
+                      <n-select v-model:value="targetLanguageModel" :options="languageOptions" />
+                    </n-form-item>
+                    <n-form-item label="Subtitle Track">
+                      <n-select v-model:value="translationOptions.subtitleTrack" :options="subtitleTrackOptions" placeholder="Auto-detect first available" />
+                    </n-form-item>
+
+                    <div class="switch-stack">
                       <n-checkbox v-model:checked="translationOptions.embedSubtitles">
                         <n-space align="center" :size="4">
                           <n-icon><layers-outline /></n-icon>
-                          Embed translated subtitles in video
+                          Embed translated subtitles
                         </n-space>
                       </n-checkbox>
-                      
-                      <n-checkbox 
-                        v-model:checked="translationOptions.useMkvmerge"
-                        :disabled="!translationOptions.embedSubtitles"
-                      >
+                      <n-checkbox v-model:checked="translationOptions.useMkvmerge" :disabled="!translationOptions.embedSubtitles">
                         <n-space align="center" :size="4">
                           <n-icon><layers-outline /></n-icon>
-                          Use mkvmerge for embedding
+                          Route through mkvmerge
                         </n-space>
                       </n-checkbox>
-                    </n-space>
+                    </div>
 
-                    <n-collapse>
-                      <n-collapse-item title="Advanced Options" name="advanced">
-                        <n-grid :cols="3" :x-gap="24" :y-gap="16">
+                    <n-collapse class="wired-collapse">
+                      <n-collapse-item title="Advanced signal controls" name="advanced">
+                        <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen">
                           <n-gi>
-                            <n-form-item label="Batch Size">
-                              <n-input-number
-                                v-model:value="translationOptions.batchSize"
-                                :min="1"
-                                :max="1000"
-                                placeholder="Lines per API call"
-                              />
+                            <n-form-item label="Batch">
+                              <n-input-number v-model:value="translationOptions.batchSize" :min="1" :max="1000" />
                             </n-form-item>
                           </n-gi>
                           <n-gi>
-                            <n-form-item label="Concurrency">
-                              <n-input-number
-                                v-model:value="translationOptions.concurrency"
-                                :min="1"
-                                :max="10"
-                                placeholder="Parallel requests"
-                              />
+                            <n-form-item label="Parallel">
+                              <n-input-number v-model:value="translationOptions.concurrency" :min="1" :max="10" />
                             </n-form-item>
                           </n-gi>
                           <n-gi>
-                            <n-form-item label="Delay (ms)">
-                              <n-input-number
-                                v-model:value="translationOptions.requestDelay"
-                                :min="0"
-                                :max="5000"
-                                :step="100"
-                              />
+                            <n-form-item label="Delay">
+                              <n-input-number v-model:value="translationOptions.requestDelay" :min="0" :max="5000" :step="100" />
                             </n-form-item>
                           </n-gi>
                         </n-grid>
-                        
-                        <n-form-item label="Custom Prompt (Optional)">
-                          <n-input
-                            v-model:value="translationOptions.customPrompt"
-                            type="textarea"
-                            placeholder="Add custom instructions for the translation..."
-                            :rows="3"
-                          />
+                        <n-form-item label="Custom Prompt">
+                          <n-input v-model:value="translationOptions.customPrompt" type="textarea" placeholder="Add temporary protocol instructions..." :rows="4" />
                         </n-form-item>
                       </n-collapse-item>
                     </n-collapse>
-                  </n-space>
-                </n-card>
+                  </div>
 
-                <!-- Action Button -->
-                <div v-if="selectedFiles.length > 0" class="action-bar">
-                  <n-button
-                    type="primary"
-                    size="large"
-                    :loading="isTranslating"
-                    :disabled="!canStartTranslation"
-                    @click="startTranslation"
-                  >
-                    <template #icon>
-                      <n-icon><play-outline /></n-icon>
-                    </template>
-                    {{ isTranslating ? 'Translating...' : 'Start Translation' }}
-                  </n-button>
-                </div>
+                  <div class="execute-block">
+                    <n-button type="primary" size="large" block class="execute-command" :loading="isTranslating" :disabled="!canStartTranslation" @click="startTranslation">
+                      <template #icon><n-icon><play-outline /></n-icon></template>
+                      {{ isTranslating ? 'TRANSLATING SIGNAL...' : 'INITIATE TRANSLATION' }}
+                    </n-button>
+                    <p v-if="!canStartTranslation" class="disabled-hint">Attach media with subtitle tracks and verify provider/FFmpeg settings.</p>
+                  </div>
 
-                <!-- Progress Section -->
-                <n-card v-if="isTranslating || translationProgress > 0" class="progress-card">
-                  <template #header>
-                    <n-space align="center">
-                      <span>Translation Progress</span>
-                    </n-space>
-                  </template>
-                  
-                  <n-space vertical size="large">
-                    <n-progress
-                      type="line"
-                      :percentage="translationProgress"
-                      :status="translationProgress === 100 ? 'success' : 'default'"
-                      :show-indicator="true"
-                    />
-                    
-                    <n-space justify="space-between">
-                      <span class="progress-status">{{ currentStatus }}</span>
-                      <span class="progress-eta">{{ estimatedTime }}</span>
-                    </n-space>
-                  </n-space>
-                </n-card>
-              </div>
+                  <div v-if="isTranslating || translationProgress > 0" class="progress-console">
+                    <div class="progress-head">
+                      <span>sync {{ Math.round(translationProgress) }}%</span>
+                      <span>{{ estimatedTime }}</span>
+                    </div>
+                    <n-progress type="line" :percentage="translationProgress" :status="translationProgress === 100 ? 'success' : 'default'" :show-indicator="false" />
+                    <p class="progress-status">{{ currentStatus || 'awaiting packet response...' }}</p>
+                  </div>
+                </aside>
+              </section>
             </main>
           </div>
 
-          <!-- Settings Modal -->
           <SettingsModal v-model:show="showSettings" ref="settingsRef" />
         </n-dialog-provider>
       </n-notification-provider>
@@ -376,14 +279,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch, triggerRef } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
 import {
   NConfigProvider,
   NMessageProvider,
   NNotificationProvider,
   NDialogProvider,
   NButton,
-  NCard,
   NIcon,
   NSpace,
   NTooltip,
@@ -403,15 +305,12 @@ import {
   NPopconfirm,
   NAlert,
   NDivider,
-  NText,
-  darkTheme,
-  type GlobalThemeOverrides
+  NText
 } from 'naive-ui'
 import {
   SettingsOutline,
   SunnyOutline,
   MoonOutline,
-  LanguageOutline,
   DocumentOutline,
   FolderOpenOutline,
   TrashOutline,
@@ -424,184 +323,113 @@ import {
   ArrowUndoOutline,
   InformationCircleOutline
 } from '@vicons/ionicons5'
-import { open } from '@tauri-apps/plugin-dialog'
-import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow, type DragDropEvent } from '@tauri-apps/api/window'
-import SettingsModal from './components/SettingsModal.vue'
-import {
-  defaultSettings,
-  hasUsableApiConfig,
-  providerRequiresApiKey,
-  SETTINGS_STORAGE_KEY,
-  sharedLanguageOptions,
-  TRANSLATION_OPTIONS_STORAGE_KEY,
-  type Settings
-} from './config/settings'
+import { scanFolderForVideos } from './api/animesubs'
+import { sharedLanguageOptions } from './config/settings'
+import { useAppTheme } from './composables/useAppTheme'
+import { useSettingsState, type SettingsModalExpose } from './composables/useSettingsState'
+import { useTranslationOptions } from './composables/useTranslationOptions'
+import { useVideoFiles } from './composables/useVideoFiles'
+import { useTranslationJob } from './composables/useTranslationJob'
 
-// Types
-interface SubtitleTrack {
-  index: number
-  stream_index: number
-  codec: string
-  language: string | null
-  title: string | null
-  default: boolean
-  forced: boolean
-}
+const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
 
-interface VideoInfo {
-  path: string
-  filename: string
-  duration: number | null
-  subtitle_tracks: SubtitleTrack[]
-}
+const { isDark, theme, themeOverrides, toggleTheme } = useAppTheme()
 
-interface BackupInfo {
-  original_path: string
-  backup_path: string
-  track_index: number
-  format: string
-  created_at: string
-}
+const showSettings = ref(false)
+const settingsRef = ref<SettingsModalExpose | null>(null)
 
-interface OperationResult {
-  success: boolean
-  message: string
-  data: string | null
-}
+const {
+  cachedSettings,
+  ffmpegStatus,
+  loadCachedSettings,
+  getSettings,
+  targetLanguageModel,
+  checkFFmpeg
+} = useSettingsState(showSettings, settingsRef)
 
-interface DialogLine {
-  index: number
-  start: string
-  end: string
-  text: string
-  style: string | null
-  name: string | null
-}
+const {
+  translationOptions,
+  loadTranslationOptions
+} = useTranslationOptions()
 
-interface SubtitleData {
-  format: string
-  line_count: number
-  lines: DialogLine[]
-  source_path: string | null
-  ass_header: string | null
-}
+const languageOptions = sharedLanguageOptions.filter(option => option.value)
 
-// Theme
-const THEME_KEY = 'animesubs-theme'
+const {
+  selectedFiles,
+  subtitleTrackOptions,
+  isDragging,
+  loadingFiles,
+  extractingSubtitle,
+  backingUp,
+  addFiles,
+  selectFiles,
+  selectFolder,
+  handleDrop,
+  removeFile,
+  clearFiles: clearSelectedFiles,
+  extractSubtitle,
+  backupSubtitle,
+  restoreBackup,
+  deleteBackup
+} = useVideoFiles(getSettings)
 
-const getInitialTheme = () => {
-  try {
-    const saved = localStorage.getItem(THEME_KEY)
-    if (saved === 'dark' || saved === 'light') {
-      return saved === 'dark'
-    }
-  } catch (e) {
-    console.error('Failed to read theme preference:', e)
-  }
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
-const isDark = ref(getInitialTheme())
-const theme = computed(() => isDark.value ? darkTheme : null)
-
-const themeOverrides = computed<GlobalThemeOverrides>(() => ({
-  common: {
-    primaryColor: '#6b7cff',
-    primaryColorHover: '#7f8dff',
-    primaryColorPressed: '#5567e6',
-    primaryColorSuppl: '#6b7cff',
-    borderRadius: '8px',
-    ...(isDark.value ? {
-      bodyColor: '#0d1016',
-      cardColor: '#121620',
-      modalColor: '#0f121a',
-      popoverColor: '#121620',
-      tableColor: '#121620',
-      inputColor: '#0c0f17',
-      actionColor: '#182032',
-      hoverColor: 'rgba(107, 124, 255, 0.12)',
-      borderColor: '#1f2633',
-      dividerColor: '#1f2633',
-      textColor1: '#f5f7fb',
-      textColor2: '#c4cad4',
-      textColor3: '#8d95a6'
-    } : {})
-  }
+const providerLabel = computed(() => cachedSettings.value?.provider || 'unconfigured')
+const modelLabel = computed(() => cachedSettings.value?.selectedModel || 'no-model')
+const targetLanguageLabel = computed(() => {
+  const target = cachedSettings.value?.targetLanguage || targetLanguageModel.value
+  return languageOptions.find(option => option.value === target)?.label || target || 'Target unknown'
+})
+const readyFileCount = computed(() => selectedFiles.value.filter(file => file.videoInfo && file.videoInfo.subtitle_tracks.length > 0).length)
+const totalSubtitleTracks = computed(() => selectedFiles.value.reduce((total, file) => total + (file.videoInfo?.subtitle_tracks.length || 0), 0))
+const totalBackups = computed(() => selectedFiles.value.reduce((total, file) => total + file.backups.length, 0))
+const ffmpegStatusLabel = computed(() => {
+  if (!ffmpegStatus.value) return 'checking'
+  return ffmpegStatus.value.success ? 'online' : 'missing'
+})
+const ffmpegStatusClass = computed(() => ({
+  online: ffmpegStatus.value?.success,
+  offline: ffmpegStatus.value && !ffmpegStatus.value.success
 }))
 
-const toggleTheme = () => {
-  isDark.value = !isDark.value
-  try {
-    localStorage.setItem(THEME_KEY, isDark.value ? 'dark' : 'light')
-  } catch (e) {
-    console.error('Failed to save theme preference:', e)
-  }
-}
-
-// Settings
-const showSettings = ref(false)
-const settingsRef = ref<InstanceType<typeof SettingsModal> | null>(null)
-const cachedSettings = ref<Settings | null>(null)
-
-// Load settings from localStorage
-const loadCachedSettings = () => {
-  try {
-    const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
-    if (saved) {
-      cachedSettings.value = { ...defaultSettings, ...JSON.parse(saved) }
-    } else {
-      cachedSettings.value = { ...defaultSettings }
-    }
-  } catch (e) {
-    console.error('Failed to load settings:', e)
-    cachedSettings.value = { ...defaultSettings }
-  }
-}
-
-// Refresh cache when settings modal closes
-watch(showSettings, (isOpen, wasOpen) => {
-  if (wasOpen && !isOpen) {
-    // Modal just closed, refresh settings cache
-    loadCachedSettings()
-  }
+const {
+  isTranslating,
+  translationProgress,
+  currentStatus,
+  estimatedTime,
+  canStartTranslation,
+  resetProgress,
+  startTranslation
+} = useTranslationJob({
+  selectedFiles,
+  cachedSettings,
+  ffmpegStatus,
+  translationOptions,
+  settingsRef,
+  showSettings,
+  getSettings
 })
 
-// FFmpeg status
-const ffmpegStatus = ref<OperationResult | null>(null)
+const clearFiles = () => {
+  clearSelectedFiles()
+  resetProgress()
+}
 
-const checkFFmpeg = async () => {
-  try {
-    const settings = getSettings()
-    ffmpegStatus.value = await invoke<OperationResult>('check_ffmpeg', {
-      ffmpegPath: settings?.ffmpegPath || null
-    })
-  } catch (e) {
-    ffmpegStatus.value = {
-      success: false,
-      message: `Error: ${e}`,
-      data: null
-    }
-  }
+let cleanupDragDrop: (() => void) | null = null
+
+const preventDefaults = (e: Event) => {
+  e.preventDefault()
+  e.stopPropagation()
 }
 
 onMounted(async () => {
-  // Load settings first (synchronous)
-  loadCachedSettings()
-  // Load translation options
+  await loadCachedSettings()
   loadTranslationOptions()
-  // Then check FFmpeg with loaded settings
   await checkFFmpeg()
-
-  const preventDefaults = (e: Event) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }
 
   window.addEventListener('dragover', preventDefaults)
   window.addEventListener('drop', preventDefaults)
 
-  // Better drag/drop via Tauri window helper
   const unlistenDragDrop = await getCurrentWindow().onDragDropEvent(async (event) => {
     const payload = event.payload as DragDropEvent
     if (payload.type === 'enter') {
@@ -618,17 +446,12 @@ onMounted(async () => {
       if (paths.length > 0) {
         loadingFiles.value = true
         try {
-          // Process paths - scan folders for video files
           const allVideoPaths: string[] = []
           for (const path of paths) {
             try {
-              // Check if path is a directory by attempting to scan it
-              const videos = await invoke<string[]>('scan_folder_for_videos', {
-                folderPath: path
-              })
+              const videos = await scanFolderForVideos(path)
               allVideoPaths.push(...videos)
             } catch {
-              // Not a folder or scan failed, treat as file
               allVideoPaths.push(path)
             }
           }
@@ -640,1026 +463,690 @@ onMounted(async () => {
     }
   })
 
-  onUnmounted(() => {
+  cleanupDragDrop = () => {
     unlistenDragDrop()
     window.removeEventListener('dragover', preventDefaults)
     window.removeEventListener('drop', preventDefaults)
-  })
+  }
 })
 
-// File selection
-interface SelectedFile {
-  name: string
-  path: string
-  size: number
-  videoInfo: VideoInfo | null
-  backups: BackupInfo[]
-  loading: boolean
-  error: string | null
-}
-
-const selectedFiles = ref<SelectedFile[]>([])
-const isDragging = ref(false)
-const loadingFiles = ref(false)
-
-const selectFiles = async () => {
-  const selected = await open({
-    multiple: true,
-    filters: [{
-      name: 'Video Files',
-      extensions: ['mkv', 'mp4', 'webm', 'avi', 'mov', 'wmv', 'flv', 'm4v']
-    }]
-  })
-  
-  if (selected) {
-    const files = Array.isArray(selected) ? selected : [selected]
-    await addFiles(files)
-  }
-}
-
-const selectFolder = async () => {
-  const selected = await open({
-    directory: true,
-    multiple: false
-  })
-  
-  if (selected) {
-    loadingFiles.value = true
-    try {
-      const videos = await invoke<string[]>('scan_folder_for_videos', {
-        folderPath: selected
-      })
-      await addFiles(videos)
-    } catch (e) {
-      console.error('Failed to scan folder:', e)
-    } finally {
-      loadingFiles.value = false
-    }
-  }
-}
-
-const addFiles = async (paths: string[]) => {
-  const settings = getSettings()
-  
-  for (const path of paths) {
-    // Skip if already added
-    if (selectedFiles.value.some(f => f.path === path)) continue
-    
-    const file: SelectedFile = {
-      name: path.split('/').pop() || path,
-      path,
-      size: 0,
-      videoInfo: null,
-      backups: [],
-      loading: true,
-      error: null
-    }
-    
-    selectedFiles.value.push(file)
-    // Force reactivity update after push
-    triggerRef(selectedFiles)
-    
-    // Find the index we just pushed to for reactive updates
-    const fileIndex = selectedFiles.value.length - 1
-    
-    // Load video info in background
-    try {
-      const videoInfo = await invoke<VideoInfo>('get_video_info', {
-        videoPath: path,
-        ffmpegPath: settings?.ffmpegPath || null
-      })
-      
-      // Load backups
-      const backups = await invoke<BackupInfo[]>('list_backups', {
-        videoPath: path
-      })
-      
-      // Update reactively by replacing the object
-      selectedFiles.value[fileIndex] = {
-        ...selectedFiles.value[fileIndex],
-        videoInfo,
-        backups,
-        loading: false
-      }
-      // Force reactivity update
-      triggerRef(selectedFiles)
-    } catch (e) {
-      // Update reactively by replacing the object
-      selectedFiles.value[fileIndex] = {
-        ...selectedFiles.value[fileIndex],
-        error: `${e}`,
-        loading: false
-      }
-      // Force reactivity update
-      triggerRef(selectedFiles)
-    }
-  }
-  
-  updateSubtitleTrackOptions()
-}
-
-const handleDrop = async (e: DragEvent) => {
-  e.preventDefault()
-  isDragging.value = false
-  const dt = e.dataTransfer
-  if (!dt) return
-
-  const paths: string[] = []
-  if (dt.files?.length) {
-    for (const f of Array.from(dt.files)) {
-      const path = (f as any).path || f.name
-      if (path) paths.push(path)
-    }
-  } else if (dt.items?.length) {
-    for (const item of Array.from(dt.items)) {
-      const f = item.getAsFile()
-      if (f) {
-        const path = (f as any).path || f.name
-        if (path) paths.push(path)
-      }
-    }
-  }
-
-  if (paths.length > 0) {
-    loadingFiles.value = true
-    try {
-      await addFiles(paths)
-    } finally {
-      loadingFiles.value = false
-    }
-  }
-}
-
-const removeFile = (index: number) => {
-  selectedFiles.value.splice(index, 1)
-  updateSubtitleTrackOptions()
-}
-
-const clearFiles = () => {
-  selectedFiles.value = []
-  subtitleTrackOptions.value = [{ label: 'Auto-detect (first available)', value: '' }]
-  // Reset translation progress state
-  translationProgress.value = 0
-  currentStatus.value = ''
-  estimatedTime.value = ''
-}
-
-// Translation options
-const translationOptions = reactive({
-  subtitleTrack: '' as string,
-  embedSubtitles: false,
-  useMkvmerge: true,
-  batchSize: 100,
-  concurrency: 1,
-  requestDelay: 500,
-  customPrompt: ''
+onUnmounted(() => {
+  cleanupDragDrop?.()
 })
-
-// Load translation options from localStorage
-const loadTranslationOptions = () => {
-  try {
-    const saved = localStorage.getItem(TRANSLATION_OPTIONS_STORAGE_KEY)
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      Object.assign(translationOptions, parsed)
-    }
-  } catch (e) {
-    console.error('Failed to load translation options:', e)
-  }
-}
-
-// Save translation options to localStorage
-const saveTranslationOptions = () => {
-  try {
-    localStorage.setItem(TRANSLATION_OPTIONS_STORAGE_KEY, JSON.stringify(translationOptions))
-  } catch (e) {
-    console.error('Failed to save translation options:', e)
-  }
-}
-
-// Watch for changes and auto-save
-watch(translationOptions, () => {
-  saveTranslationOptions()
-}, { deep: true })
-
-const languageOptions = sharedLanguageOptions.filter(option => option.value)
-
-const updateSettings = (patch: Partial<Settings>) => {
-  const nextSettings = {
-    ...(cachedSettings.value ?? defaultSettings),
-    ...patch
-  }
-
-  cachedSettings.value = nextSettings
-
-  if (settingsRef.value?.settings) {
-    Object.assign(settingsRef.value.settings, patch)
-  }
-
-  try {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
-  } catch (e) {
-    console.error('Failed to persist settings:', e)
-  }
-}
-
-const targetLanguageModel = computed({
-  get: () => getSettings()?.targetLanguage || defaultSettings.targetLanguage,
-  set: (value: string) => updateSettings({ targetLanguage: value })
-})
-
-const normalizeLanguageKey = (value?: string | null) => {
-  if (!value) return ''
-  return value.toLowerCase().replace(/_/g, '-').trim()
-}
-
-const ffmpegLanguageMap: Record<string, string> = {
-  und: 'und',
-  en: 'eng',
-  eng: 'eng',
-  'en-us': 'eng',
-  ja: 'jpn',
-  jpn: 'jpn',
-  'zh-cn': 'zho',
-  zh: 'zho',
-  'zh-tw': 'zho',
-  ko: 'kor',
-  kor: 'kor',
-  es: 'spa',
-  spa: 'spa',
-  fr: 'fra',
-  fra: 'fra',
-  de: 'deu',
-  deu: 'deu',
-  pt: 'por',
-  'pt-br': 'por',
-  por: 'por',
-  ru: 'rus',
-  rus: 'rus',
-  it: 'ita',
-  ita: 'ita',
-  ar: 'ara',
-  ara: 'ara'
-}
-
-const toFfmpegLangCode = (value?: string | null): string => {
-  if (!value) return 'und'
-  const normalized = normalizeLanguageKey(value)
-  if (ffmpegLanguageMap[normalized]) return ffmpegLanguageMap[normalized]
-  const base = normalized.split('-')[0]
-  if (ffmpegLanguageMap[base]) return ffmpegLanguageMap[base]
-  if (normalized.length === 3) return normalized
-  if (base.length === 2 && ffmpegLanguageMap[base]) return ffmpegLanguageMap[base]
-  if (base.length === 2) {
-    return `${base}${base.slice(-1) || 'x'}${base.slice(-1) || 'x'}`.slice(0, 3)
-  }
-  return 'und'
-}
-
-const sanitizeLangCodeForFilename = (value?: string | null): string => {
-  const cleaned = normalizeLanguageKey(value).replace(/[^a-z0-9-]/g, '')
-  return cleaned || 'und'
-}
-
-const subtitleTrackOptions = ref([
-  { label: 'Auto-detect (first available)', value: '' }
-])
-
-const updateSubtitleTrackOptions = () => {
-  const options = [{ label: 'Auto-detect (first available)', value: '' }]
-  
-  // Collect all unique subtitle tracks from all files
-  const tracks = new Map<string, string>()
-  for (const file of selectedFiles.value) {
-    if (file.videoInfo) {
-      for (const track of file.videoInfo.subtitle_tracks) {
-        const key = `${track.index}`
-        const lang = track.language || 'und'
-        const title = track.title || `Track ${track.index}`
-        const label = `${title} (${lang}) - ${track.codec}`
-        if (!tracks.has(key)) {
-          tracks.set(key, label)
-        }
-      }
-    }
-  }
-  
-  tracks.forEach((label, value) => {
-    options.push({ label, value })
-  })
-  
-  subtitleTrackOptions.value = options
-}
-
-// Subtitle operations
-const extractingSubtitle = ref<string | null>(null)
-const backingUp = ref<string | null>(null)
-
-const extractSubtitle = async (file: SelectedFile, trackIndex: number) => {
-  if (!file.videoInfo) return
-  
-  extractingSubtitle.value = file.path
-  const settings = getSettings()
-  
-  try {
-    const result = await invoke<{ success: boolean; output_path: string | null; error: string | null }>('extract_subtitle', {
-      videoPath: file.path,
-      trackIndex,
-      outputPath: null,
-      format: settings?.outputFormat || 'srt',
-      ffmpegPath: settings?.ffmpegPath || null
-    })
-    
-    if (result.success) {
-      console.log('Subtitle extracted to:', result.output_path)
-    } else {
-      console.error('Failed to extract subtitle:', result.error)
-    }
-  } catch (e) {
-    console.error('Extract error:', e)
-  } finally {
-    extractingSubtitle.value = null
-  }
-}
-
-const backupSubtitle = async (file: SelectedFile, trackIndex: number) => {
-  if (!file.videoInfo) return
-  
-  backingUp.value = file.path
-  const settings = getSettings()
-  
-  try {
-    const backupInfo = await invoke<BackupInfo>('backup_subtitle', {
-      videoPath: file.path,
-      trackIndex,
-      ffmpegPath: settings?.ffmpegPath || null
-    })
-    
-    file.backups.push(backupInfo)
-    console.log('Backup created:', backupInfo.backup_path)
-  } catch (e) {
-    console.error('Backup error:', e)
-  } finally {
-    backingUp.value = null
-  }
-}
-
-const restoreBackup = async (file: SelectedFile, backup: BackupInfo) => {
-  const settings = getSettings()
-  
-  try {
-    const result = await invoke<OperationResult>('restore_subtitle', {
-      videoPath: file.path,
-      backupPath: backup.backup_path,
-      trackIndex: backup.track_index,
-      ffmpegPath: settings?.ffmpegPath || null
-    })
-    
-    if (result.success) {
-      // Reload video info
-      const videoInfo = await invoke<VideoInfo>('get_video_info', {
-        videoPath: file.path,
-        ffmpegPath: settings?.ffmpegPath || null
-      })
-      file.videoInfo = videoInfo
-      console.log('Backup restored successfully')
-    } else {
-      console.error('Restore failed:', result.message)
-    }
-  } catch (e) {
-    console.error('Restore error:', e)
-  }
-}
-
-const deleteBackup = async (file: SelectedFile, backup: BackupInfo) => {
-  try {
-    const result = await invoke<OperationResult>('delete_backup', {
-      backupPath: backup.backup_path,
-      videoPath: file.path
-    })
-    
-    if (result.success) {
-      file.backups = file.backups.filter(b => b.backup_path !== backup.backup_path)
-    }
-  } catch (e) {
-    console.error('Delete backup error:', e)
-  }
-}
-
-// Translation state
-const isTranslating = ref(false)
-const translationProgress = ref(0)
-const currentStatus = ref('')
-const estimatedTime = ref('')
-const currentFileIndex = ref(0)
-
-const setProgress = (value: number) => {
-  const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0))
-  translationProgress.value = clamped
-}
-
-// Helper to get settings from ref or cached value
-const getSettings = (): Settings | null => {
-  if (settingsRef.value?.settings) {
-    return settingsRef.value.settings
-  }
-  return cachedSettings.value
-}
-
-// Validate API connection before starting translation
-const validateApiConnection = async (settings: Settings): Promise<{ valid: boolean; error?: string }> => {
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    }
-    
-    if (settings.apiKey) {
-      headers['Authorization'] = `Bearer ${settings.apiKey}`
-    }
-
-    // Use models endpoint as a simple connectivity check
-    let url = `${settings.apiEndpoint}/models`
-    
-    if (settings.provider === 'gemini' && !settings.apiEndpoint.includes('/openai')) {
-      url = `https://generativelanguage.googleapis.com/v1beta/models?key=${settings.apiKey}`
-      delete headers['Authorization']
-    }
-
-    const response = await fetch(url, { 
-      headers,
-      signal: AbortSignal.timeout(10000) // 10 second timeout
-    })
-    
-    if (!response.ok) {
-      const text = await response.text()
-      if (response.status === 401) {
-        return { valid: false, error: 'Invalid API key. Please check your credentials in Settings.' }
-      }
-      if (response.status === 403) {
-        return { valid: false, error: 'Access denied. Check API key permissions.' }
-      }
-      if (response.status === 429) {
-        return { valid: false, error: 'Rate limited. Please wait and try again.' }
-      }
-      return { valid: false, error: `API error (${response.status}): ${text.slice(0, 100)}` }
-    }
-    
-    return { valid: true }
-  } catch (e) {
-    if (e instanceof Error) {
-      if (e.name === 'AbortError' || e.name === 'TimeoutError') {
-        return { valid: false, error: 'Connection timeout. Check endpoint URL and network.' }
-      }
-      if (e.message.includes('fetch')) {
-        return { valid: false, error: 'Cannot connect to API. Check endpoint URL.' }
-      }
-      return { valid: false, error: `Connection failed: ${e.message}` }
-    }
-    return { valid: false, error: 'Unknown connection error' }
-  }
-}
-
-const canStartTranslation = computed(() => {
-  const settings = cachedSettings.value
-  const hasApiConfig = hasUsableApiConfig(settings)
-  const hasFiles = selectedFiles.value.length > 0
-  const filesReady = selectedFiles.value.some(f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0)
-  return hasApiConfig && hasFiles && filesReady && ffmpegStatus.value?.success
-})
-
-const cleanupGeneratedFile = async (filePath: string | null | undefined) => {
-  if (!filePath) return
-
-  try {
-    await invoke<OperationResult>('delete_file', { filePath })
-  } catch (e) {
-    console.warn(`Failed to clean up temporary file ${filePath}:`, e)
-  }
-}
-
-const startTranslation = async () => {
-  if (!canStartTranslation.value) {
-    if (!ffmpegStatus.value?.success) {
-      showSettings.value = true
-    } else if (providerRequiresApiKey(getSettings()?.provider) && !getSettings()?.apiKey) {
-      showSettings.value = true
-    } else if (!getSettings()?.selectedModel) {
-      showSettings.value = true
-    }
-    return
-  }
-  
-  const settings = getSettings()
-  if (!settings) return
-  
-  // Validate API connection first
-  currentStatus.value = 'Validating API connection...'
-  const validation = await validateApiConnection(settings)
-  if (!validation.valid) {
-    currentStatus.value = validation.error || 'API validation failed'
-    return
-  }
-  
-  isTranslating.value = true
-  setProgress(0)
-  currentFileIndex.value = 0
-  
-  const filesToProcess = selectedFiles.value.filter(
-    f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0
-  )
-
-  const failures: string[] = []
-  let completedFiles = 0
-
-  const recordFailure = (fileName: string, reason: string) => {
-    const message = `${fileName}: ${reason}`
-    failures.push(message)
-    console.error(message)
-    currentStatus.value = `Error in ${fileName}: ${reason}`
-  }
-  
-  try {
-    for (let i = 0; i < filesToProcess.length; i++) {
-      const file = filesToProcess[i]
-      currentFileIndex.value = i
-      currentStatus.value = `Processing ${file.name} (${i + 1}/${filesToProcess.length})`
-      const useTemporaryFiles = translationOptions.embedSubtitles
-      let extractedPath: string | null = null
-      let translatedSubtitlePath: string | null = null
-      
-      try {
-        // Select track - use the one from options or find first suitable
-        const trackIndex = translationOptions.subtitleTrack 
-          ? parseInt(translationOptions.subtitleTrack) 
-          : 0
-        
-        const track = file.videoInfo!.subtitle_tracks[trackIndex]
-        if (!track) {
-          recordFailure(file.name, `Track ${trackIndex} not found`)
-          continue
-        }
-        
-        // Extract subtitle to temp file
-        currentStatus.value = `Extracting subtitles from ${file.name}...`
-        setProgress(((i / filesToProcess.length) * 100) + (5 / filesToProcess.length))
-        
-        // Determine format based on settings or codec
-        let format = settings.outputFormat || 'srt'
-        
-        // If output format is not specified or is 'ass', try to keep original format if it's ASS
-        if ((!settings.outputFormat || settings.outputFormat === 'ass') && (track.codec.includes('ass') || track.codec.includes('ssa'))) {
-          format = 'ass'
-        } else if (settings.outputFormat === 'srt') {
-          format = 'srt'
-        } else if (settings.outputFormat === 'vtt') {
-          format = 'vtt'
-        } else {
-          // Fallback logic
-          format = track.codec.includes('ass') || track.codec.includes('ssa') ? 'ass' : 
-                   track.codec.includes('subrip') || track.codec.includes('srt') ? 'srt' : 
-                   track.codec.includes('webvtt') ? 'vtt' : 'srt'
-        }
-        
-        const extractResult = await invoke<{ success: boolean; output_path: string | null; error: string | null }>('extract_subtitle', {
-          videoPath: file.path,
-          trackIndex,
-          outputPath: null,
-          format,
-          temporary: useTemporaryFiles,
-          ffmpegPath: settings?.ffmpegPath || null
-        })
-        
-        if (!extractResult.success || !extractResult.output_path) {
-          recordFailure(file.name, extractResult.error || 'Failed to extract subtitle track')
-          continue
-        }
-        
-        extractedPath = extractResult.output_path
-        
-        // Parse the extracted subtitle file
-        currentStatus.value = `Parsing subtitles from ${file.name}...`
-        setProgress(((i / filesToProcess.length) * 100) + (10 / filesToProcess.length))
-        
-        const subtitleData = await invoke<SubtitleData>('parse_subtitle_file', {
-          filePath: extractedPath
-        })
-        
-        if (!subtitleData || subtitleData.lines.length === 0) {
-          recordFailure(file.name, 'No dialog lines found in extracted subtitle')
-          continue
-        }
-        
-        // Get system prompt from settings modal
-        const systemPrompt = settingsRef.value?.getSystemPrompt?.() || 
-          `You are a professional subtitle translator. Translate the following subtitle lines to ${settings.targetLanguage}. Keep translations natural and contextually appropriate for anime dialogue.`
-        
-        // Build LLM config
-        const llmConfig = {
-          provider: settings.provider,
-          api_key: settings.apiKey,
-          endpoint: settings.apiEndpoint,
-          model: settings.selectedModel || '',
-          system_prompt: systemPrompt
-        }
-        
-        // Translate subtitles
-        currentStatus.value = `Translating ${file.name} (${subtitleData.lines.length} lines)...`
-        setProgress(((i / filesToProcess.length) * 100) + (20 / filesToProcess.length))
-        
-        const translatedData = await invoke<SubtitleData>('translate_subtitles', {
-          subtitleData,
-          config: llmConfig,
-          sourceLang: settings.sourceLanguage || 'auto',
-          targetLang: settings.targetLanguage,
-          batchSize: translationOptions.batchSize,
-          concurrency: translationOptions.concurrency,
-          requestDelay: translationOptions.requestDelay
-        })
-        
-        if (!translatedData) {
-          recordFailure(file.name, 'Translation returned no data')
-          continue
-        }
-        
-        // Generate output path only when the user wants to keep the subtitle file
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '').slice(0, 15)
-        const baseName = file.path.replace(/\.[^.]+$/, '')
-        const targetLangValue = settings.targetLanguage || track.language || 'und'
-        const filenameLangCode = sanitizeLangCodeForFilename(targetLangValue)
-        const ffmpegLangCode = toFfmpegLangCode(targetLangValue)
-        const persistentOutputPath = `${baseName}_${filenameLangCode}_${timestamp}_track${trackIndex}.${format}`
-        
-        // Save translated subtitles
-        currentStatus.value = `Saving translated subtitles for ${file.name}...`
-        setProgress(((i / filesToProcess.length) * 100) + (80 / filesToProcess.length))
-        
-        const saveResult = await invoke<OperationResult>('save_translated_subtitles', {
-          translatedData,
-          outputPath: useTemporaryFiles ? null : persistentOutputPath,
-          originalFilePath: extractedPath,
-          temporary: useTemporaryFiles
-        })
-        
-        if (!saveResult.success || !saveResult.data) {
-          recordFailure(file.name, saveResult.message || 'Failed to save translated subtitles')
-          continue
-        }
-
-        translatedSubtitlePath = saveResult.data
-        
-        // Embed subtitles if enabled
-        if (translationOptions.embedSubtitles) {
-          currentStatus.value = `Embedding translated subtitles in ${file.name}...`
-          setProgress(((i / filesToProcess.length) * 100) + (90 / filesToProcess.length))
-          
-          // Refresh video info to check for existing translated tracks
-          const currentInfo = await invoke<VideoInfo>('get_video_info', {
-            videoPath: file.path,
-            ffmpegPath: settings?.ffmpegPath || null
-          })
-          
-          // Remove existing translated tracks to prevent duplicates
-          const translatedTitle = `Translated (${filenameLangCode})`
-          const tracksToRemove = currentInfo.subtitle_tracks
-            .filter(t => {
-              if (t.title === translatedTitle || t.title?.startsWith('Translated (')) return true
-              const trackLangIso = toFfmpegLangCode(t.language)
-              return trackLangIso === ffmpegLangCode && t.index !== trackIndex
-            })
-            .sort((a, b) => b.index - a.index) // Remove from end to start
-
-          let removeFailed = false
-          for (const t of tracksToRemove) {
-            currentStatus.value = `Removing existing translated track ${t.index} from ${file.name}...`
-            const removeResult = await invoke<OperationResult>('remove_subtitle_track', {
-              videoPath: file.path,
-              trackIndex: t.index,
-              ffmpegPath: settings?.ffmpegPath || null
-            })
-
-            if (!removeResult.success) {
-              recordFailure(file.name, removeResult.message || `Failed to remove existing subtitle track ${t.index}`)
-              removeFailed = true
-              break
-            }
-          }
-
-          if (removeFailed) {
-            continue
-          }
-          
-          const embedResult = await invoke<OperationResult>('embed_subtitle', {
-            videoPath: file.path,
-            subtitlePath: translatedSubtitlePath,
-            language: ffmpegLangCode,
-            title: translatedTitle,
-            setDefault: true,
-            ffmpegPath: settings?.ffmpegPath || null,
-            useMkvmerge: translationOptions.useMkvmerge
-          })
-
-          if (!embedResult.success) {
-            recordFailure(file.name, embedResult.message || 'Failed to embed translated subtitles')
-            continue
-          }
-        }
-        
-        completedFiles += 1
-        setProgress((((i + 1) / filesToProcess.length) * 100))
-      } finally {
-        if (useTemporaryFiles) {
-          await cleanupGeneratedFile(extractedPath)
-          await cleanupGeneratedFile(translatedSubtitlePath)
-        }
-      }
-    }
-
-    if (failures.length === 0) {
-      currentStatus.value = 'Translation complete!'
-    } else if (completedFiles === 0) {
-      currentStatus.value = `Translation failed: ${failures[0]}`
-    } else {
-      currentStatus.value = `Translation finished with errors (${completedFiles}/${filesToProcess.length}): ${failures[0]}`
-    }
-  } catch (e) {
-    console.error('Translation error:', e)
-    currentStatus.value = `Error: ${e}`
-  } finally {
-    isTranslating.value = false
-  }
-}
 </script>
 
 <style>
+:root {
+  --wired-black: #030303;
+  --wired-void: #070606;
+  --wired-panel: #121013;
+  --wired-panel-2: #1c151d;
+  --wired-panel-3: #241a23;
+  --wired-paper: #c8bd98;
+  --wired-paper-bright: #e0d4a8;
+  --wired-muted: #8d8064;
+  --wired-faint: #5d5342;
+  --wired-pink: #c99a86;
+  --wired-red: #b54438;
+  --wired-red-dark: #4d1716;
+  --wired-border: rgba(200, 189, 152, 0.22);
+  --wired-border-strong: rgba(224, 212, 168, 0.42);
+  --wired-glow: rgba(201, 154, 134, 0.18);
+  --wired-shadow: 0 24px 80px rgba(0, 0, 0, 0.64);
+  --font-wired: ui-monospace, "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, monospace;
+  --font-body: "Avenir Next", "Segoe UI", sans-serif;
+}
+
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
-html, body, #app {
+html,
+body,
+#app {
   height: 100%;
+  margin: 0;
   overflow: hidden;
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0d1016;
+  color: var(--wired-paper);
+  background: var(--wired-black);
+  font-family: var(--font-body);
 }
 
-/* Dark mode specific overrides */
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
 .n-config-provider {
   height: 100%;
 }
 </style>
 
 <style scoped>
-.app-container {
+.app-shell {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: v-bind('isDark ? "#0d1016" : "#f8f9fa"');
-  transition: background 0.3s ease;
+  color: var(--wired-paper);
+  background:
+    radial-gradient(circle at 14% 18%, rgba(181, 68, 56, 0.18), transparent 26rem),
+    radial-gradient(circle at 88% 8%, rgba(201, 154, 134, 0.1), transparent 22rem),
+    linear-gradient(135deg, var(--wired-black), var(--wired-void) 46%, #0d080b);
+  isolation: isolate;
 }
 
-.app-header {
+.app-shell::before,
+.app-shell::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  content: "";
+}
+
+.app-shell::before {
+  opacity: 0.32;
+  background-image:
+    radial-gradient(circle, rgba(201, 154, 134, 0.18) 1px, transparent 1px);
+  background-size: 4px 4px;
+}
+
+.app-shell::after {
+  opacity: 0.18;
+  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(224, 212, 168, 0.09) 3px 4px);
+  mix-blend-mode: screen;
+}
+
+.wired-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
-  background: v-bind('isDark ? "#101522" : "#ffffff"');
-  border-bottom: 1px solid v-bind('isDark ? "#1f2633" : "#e5e7eb"');
+  gap: 18px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--wired-border);
+  background: rgba(3, 3, 3, 0.74);
   -webkit-app-region: drag;
-  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
-.app-header :deep(button) {
+.wired-header :deep(button) {
   -webkit-app-region: no-drag;
 }
 
-.header-left {
+.identity-block,
+.header-actions,
+.status-strip,
+.file-title-row,
+.file-actions,
+.panel-heading,
+.track-meta,
+.track-actions,
+.backup-item,
+.progress-head,
+.hero-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
 }
 
-.header-right {
+.identity-block {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
+  flex-shrink: 0;
 }
 
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.eyebrow,
+.terminal-line,
+.status-pill,
+.queue-stats span,
+.disabled-hint,
+.progress-head,
+.progress-status {
+  font-family: var(--font-wired);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
-.logo-text {
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--wired-pink);
+  font-size: 11px;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1 {
+  color: var(--wired-paper-bright);
+  font-family: var(--font-wired);
   font-size: 18px;
-  font-weight: 600;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.app-main {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-}
-
-.main-content {
-  width: min(960px, 100%);
-  margin: 0 auto;
+.status-strip {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-bottom: 24px;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 
-.drop-zone {
-  border: 2px dashed var(--n-border-color);
-  border-radius: 12px;
-  transition: all 0.3s ease;
-  cursor: pointer;
+.status-pill {
+  max-width: 220px;
+  padding: 7px 10px;
+  overflow: hidden;
+  color: var(--wired-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid var(--wired-border);
+  background: rgba(18, 16, 19, 0.82);
 }
 
-.drop-zone:hover,
-.drop-zone-active {
-  border-color: var(--n-primary-color);
-  background: var(--n-color-hover);
+.status-pill.online {
+  color: var(--wired-paper-bright);
+  border-color: rgba(200, 189, 152, 0.5);
 }
 
-.drop-zone-content {
+.status-pill.offline {
+  color: var(--wired-pink);
+  border-color: rgba(181, 68, 56, 0.56);
+}
+
+.header-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.wired-main {
+  flex: 1;
+  padding: 24px;
+  overflow: auto;
+}
+
+.hero-port {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 36px 24px;
+  max-width: 720px;
+  margin: 0 auto 22px;
+  padding: 48px 24px 52px;
   text-align: center;
+  border: 1px dashed var(--wired-border-strong);
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(200, 189, 152, 0.02) 0 1px,
+    transparent 1px 12px
+  );
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.hero-port.drop-zone-active {
+  border-color: var(--wired-paper-bright);
+  box-shadow: 0 0 0 1px rgba(224, 212, 168, 0.2), inset 0 0 60px rgba(201, 154, 134, 0.06);
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 600px;
+  padding: 0 12px;
+}
+
+.terminal-line {
+  color: var(--wired-red);
+  font-size: 12px;
+}
+
+.hero-copy h2 {
+  max-width: 580px;
+  margin-top: 12px;
+  color: var(--wired-paper-bright);
+  font-family: var(--font-wired);
+  font-size: clamp(32px, 5vw, 62px);
+  line-height: 0.94;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.hero-copy > p:not(.terminal-line) {
+  max-width: 480px;
+  margin-top: 18px;
+  color: var(--wired-muted);
+  font-size: 15px;
+  line-height: 1.65;
+  text-align: center;
+}
+
+.hero-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.wired-alert,
+.workspace-grid {
+  max-width: 1260px;
+  margin: 0 auto 18px;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  gap: 18px;
+  align-items: start;
+}
+
+.wired-panel {
+  border: 1px solid var(--wired-border);
+  background:
+    linear-gradient(180deg, rgba(28, 21, 29, 0.9), rgba(12, 9, 12, 0.94)),
+    radial-gradient(circle at 20% 0%, rgba(201, 154, 134, 0.11), transparent 18rem);
+  box-shadow: var(--wired-shadow);
+}
+
+.queue-panel,
+.protocol-panel {
+  padding: 18px;
+}
+
+.panel-heading {
+  justify-content: space-between;
   gap: 16px;
+  margin-bottom: 16px;
 }
 
-.drop-zone-content h2 {
+.panel-heading h3 {
+  color: var(--wired-paper-bright);
+  font-family: var(--font-wired);
   font-size: 20px;
-  font-weight: 600;
-  color: var(--n-text-color-1);
+  text-transform: uppercase;
 }
 
-.drop-zone-content p {
-  color: var(--n-text-color-3);
-  margin-bottom: 8px;
+.queue-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
-.drop-icon {
-  width: 88px;
-  height: 88px;
-  object-fit: contain;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: optimizeQuality;
+.queue-stats div {
+  padding: 12px;
+  border: 1px solid rgba(200, 189, 152, 0.14);
+  background: rgba(3, 3, 3, 0.34);
 }
 
-.files-card,
-.options-card,
-.progress-card {
-  border-radius: 12px;
+.queue-stats strong {
+  display: block;
+  color: var(--wired-paper-bright);
+  font-family: var(--font-wired);
+  font-size: 24px;
+}
+
+.queue-stats span {
+  color: var(--wired-muted);
+  font-size: 10px;
+}
+
+.queue-scroll {
+  max-height: 52vh;
 }
 
 .file-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding-right: 8px;
 }
 
 .file-item {
-  padding: 12px;
-  border-radius: 8px;
-  background: v-bind('isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)"');
-  border: 1px solid v-bind('isDark ? "#2a2a4a" : "#e5e7eb"');
+  padding: 14px;
+  border: 1px solid rgba(200, 189, 152, 0.14);
+  background:
+    linear-gradient(90deg, rgba(3, 3, 3, 0.46), rgba(28, 21, 29, 0.36)),
+    repeating-linear-gradient(135deg, rgba(200, 189, 152, 0.035) 0 1px, transparent 1px 8px);
 }
 
 .file-header {
   display: flex;
-  align-items: center;
+  gap: 12px;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 8px;
 }
 
-.file-name {
-  font-weight: 500;
-  color: var(--n-text-color-1);
+.file-title-row {
+  min-width: 0;
+  gap: 10px;
+  color: var(--wired-pink);
 }
 
-.subtitle-tracks {
-  margin-top: 8px;
-  padding-left: 28px;
-  display: flex;
-  flex-direction: column;
+.file-title-wrap {
+  min-width: 0;
+}
+
+.file-title-wrap h4 {
+  overflow: hidden;
+  color: var(--wired-paper-bright);
+  font-family: var(--font-wired);
+  font-size: 14px;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-title-wrap p {
+  max-width: 520px;
+  overflow: hidden;
+  color: var(--wired-faint);
+  font-family: var(--font-wired);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-actions {
+  flex-shrink: 0;
   gap: 6px;
 }
 
-.subtitle-track {
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: v-bind('isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.03)"');
+.subtitle-tracks,
+.backups-section,
+.file-error,
+.no-subs-warning {
+  margin-top: 12px;
 }
 
-.track-info {
-  font-size: 13px;
-  color: var(--n-text-color-2);
+.subtitle-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subtitle-track {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid rgba(200, 189, 152, 0.1);
+  background: rgba(3, 3, 3, 0.34);
+}
+
+.track-meta {
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--wired-muted);
+  font-family: var(--font-wired);
+  font-size: 11px;
+}
+
+.track-lang,
+.track-flag {
+  padding: 2px 6px;
+  color: var(--wired-black);
+  font-weight: 800;
+  background: var(--wired-paper);
+}
+
+.track-flag {
+  color: var(--wired-paper-bright);
+  background: rgba(200, 189, 152, 0.13);
+}
+
+.track-flag.warn {
+  color: var(--wired-pink);
 }
 
 .track-codec {
-  font-size: 11px;
-  color: var(--n-text-color-3);
+  color: var(--wired-faint);
+}
+
+.track-actions,
+.backup-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
 }
 
 .no-subs-warning {
   display: flex;
+  gap: 8px;
   align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  padding-left: 28px;
-  font-size: 12px;
-  color: var(--warning-color);
-}
-
-.file-error {
-  margin-top: 8px;
-  padding-left: 28px;
-  font-size: 12px;
-}
-
-.backups-section {
-  margin-top: 8px;
-  padding-left: 28px;
+  color: var(--wired-pink);
+  font-family: var(--font-wired);
+  font-size: 11px;
+  text-transform: uppercase;
 }
 
 .backup-item {
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: v-bind('isDark ? "rgba(82, 196, 26, 0.1)" : "rgba(82, 196, 26, 0.05)"');
-  margin-bottom: 4px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  color: var(--wired-muted);
+  font-family: var(--font-wired);
+  font-size: 10px;
+  border: 1px solid rgba(201, 154, 134, 0.14);
+  background: rgba(181, 68, 56, 0.08);
 }
 
-.backup-name {
-  font-size: 12px;
-  color: var(--n-text-color-2);
+.protocol-panel {
+  position: sticky;
+  top: 0;
 }
 
-.action-bar {
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--wired-red);
+  background: var(--wired-red-dark);
+  box-shadow: 0 0 18px rgba(181, 68, 56, 0.36);
+}
+
+.status-dot.online {
+  border-color: var(--wired-paper-bright);
+  background: var(--wired-paper);
+  box-shadow: 0 0 20px rgba(224, 212, 168, 0.26);
+}
+
+.protocol-form {
   display: flex;
-  justify-content: center;
-  padding: 8px 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.switch-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 12px;
+  padding: 12px;
+  border: 1px solid rgba(200, 189, 152, 0.12);
+  background: rgba(3, 3, 3, 0.32);
+}
+
+.execute-block {
+  margin-top: 18px;
+}
+
+.disabled-hint {
+  margin-top: 10px;
+  color: var(--wired-faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.progress-console {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid rgba(200, 189, 152, 0.16);
+  background: #050505;
+}
+
+.progress-head {
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: var(--wired-paper-bright);
+  font-size: 10px;
 }
 
 .progress-status {
-  color: var(--n-text-color-2);
+  margin-top: 10px;
+  color: var(--wired-muted);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
-.progress-eta {
-  color: var(--n-text-color-3);
-  font-size: 13px;
+:deep(.n-button) {
+  font-family: var(--font-wired);
+  letter-spacing: 0.05em;
+  border-radius: 0;
 }
 
-@media (max-width: 960px) {
-  .main-content {
-    width: 100%;
-    padding: 0 8px 24px;
+:deep(.n-button--primary-type) {
+  color: var(--wired-black) !important;
+  font-weight: 900;
+  background: var(--wired-paper) !important;
+  border-color: var(--wired-paper) !important;
+  box-shadow: 6px 6px 0 var(--wired-red-dark);
+}
+
+:deep(.n-button--primary-type:hover) {
+  background: var(--wired-paper-bright) !important;
+  border-color: var(--wired-paper-bright) !important;
+}
+
+.secondary-command,
+.icon-button {
+  color: var(--wired-paper) !important;
+  border: 1px solid var(--wired-border) !important;
+  background: rgba(3, 3, 3, 0.3) !important;
+}
+
+:deep(.n-base-selection),
+:deep(.n-input),
+:deep(.n-input-number),
+:deep(.n-input-number .n-input) {
+  border-radius: 0 !important;
+  background: rgba(3, 3, 3, 0.42) !important;
+}
+
+:deep(.n-base-selection .n-base-selection-label),
+:deep(.n-input-wrapper),
+:deep(.n-input__textarea-el),
+:deep(.n-input__input-el) {
+  color: var(--wired-paper) !important;
+  font-family: var(--font-wired) !important;
+}
+
+:deep(.n-form-item-label__text),
+:deep(.n-collapse-item__header-main) {
+  color: var(--wired-muted) !important;
+  font-family: var(--font-wired) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:deep(.n-checkbox__label) {
+  color: var(--wired-paper) !important;
+  font-family: var(--font-wired);
+  font-size: 12px;
+}
+
+:deep(.n-tag) {
+  border-radius: 0;
+  font-family: var(--font-wired);
+  text-transform: uppercase;
+}
+
+:deep(.n-progress-graph-line-fill) {
+  background: linear-gradient(90deg, var(--wired-red), var(--wired-paper)) !important;
+}
+
+.wired-divider :deep(.n-divider__title) {
+  color: var(--wired-faint);
+  font-family: var(--font-wired);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 980px) {
+  .status-strip {
+    display: none;
   }
+}
+
+@media (max-width: 820px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .protocol-panel {
+    position: static;
+  }
+
 }
 
 @media (max-width: 720px) {
-  .app-header {
-    padding: 10px 16px;
+  .wired-main {
+    padding: 14px;
   }
 
-  .drop-zone-content {
-    padding: 20px 10px;
+  .wired-header {
+    gap: 12px;
+    padding: 14px;
   }
 
-  .drop-zone-content h2 {
-    font-size: 18px;
+  .hero-port,
+  .queue-panel,
+  .protocol-panel {
+    padding: 14px;
   }
 
-  .drop-zone-content p {
-    font-size: 13px;
+  .hero-copy {
+    padding: 0;
   }
 
-  .drop-icon {
-    width: 64px;
-    height: 64px;
+  .hero-copy h2 {
+    font-size: 28px;
   }
 
-  :deep(.options-card .n-grid) {
-    grid-template-columns: 1fr !important;
-    gap: 12px !important;
+  .hero-actions,
+  .header-actions,
+  .subtitle-track,
+  .backup-item {
+    align-items: stretch;
   }
 
-  .action-bar {
-    padding: 4px 0;
+  .subtitle-track,
+  .backup-item,
+  .file-header {
+    flex-direction: column;
+  }
+
+  .queue-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .queue-scroll {
+    max-height: none;
   }
 }
 </style>

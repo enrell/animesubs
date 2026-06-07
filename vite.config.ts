@@ -29,4 +29,17 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vue: ["vue"],
+          naive: ["naive-ui"],
+          icons: ["@vicons/ionicons5"],
+          tauri: ["@tauri-apps/api", "@tauri-apps/plugin-dialog"],
+        },
+      },
+    },
+  },
 }));

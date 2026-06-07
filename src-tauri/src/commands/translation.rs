@@ -1,165 +1,14 @@
 use crate::models::*;
+use crate::providers::call_llm_api;
 use crate::utils::*;
 use futures::future::join_all;
-use reqwest::Client;
 use regex::Regex;
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
-
-async fn call_llm_api(
-    config: &LLMConfig,
-    lines: &[TranslationLine],
-    source_lang: &str,
-    target_lang: &str,
-) -> Result<Vec<TranslatedLine>, String> {
-    let client = Client::new();
-
-    let system_prompt = build_translation_prompt(&config.system_prompt, source_lang, target_lang);
-
-    let user_content = serde_json::json!({
-        "lines": lines
-    });
-
-    let is_gemini_openai_compat =
-        config.provider == "gemini" && config.endpoint.contains("/openai");
-
-    let request_body = match config.provider.as_str() {
-        "openai" | "openrouter" | "minimax" | _ if is_gemini_openai_compat => {
-            serde_json::json!({
-                "model": config.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content.to_string()}
-                ],
-                "temperature": 0.3,
-                "response_format": {"type": "json_object"}
-            })
-        }
-        "gemini" => {
-            serde_json::json!({
-                "contents": [{
-                    "parts": [{
-                        "text": format!("{}\n\nTranslate the following:\n{}", system_prompt, user_content)
-                    }]
-                }],
-                "generationConfig": {
-                    "temperature": 0.3,
-                    "responseMimeType": "application/json"
-                }
-            })
-        }
-        "ollama" | "lmstudio" => {
-            serde_json::json!({
-                "model": config.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content.to_string()}
-                ],
-                "stream": false,
-                "format": "json",
-                "options": {
-                    "temperature": 0.3
-                }
-            })
-        }
-        _ => return Err(format!("Unsupported provider: {}", config.provider)),
-    };
-
-    let endpoint_url = if is_gemini_openai_compat {
-        let base = config.endpoint.trim_end_matches('/');
-        format!("{}/chat/completions", base)
-    } else if config.provider == "gemini" {
-        format!("{}:generateContent?key={}", config.endpoint, config.api_key)
-    } else {
-        let base = config.endpoint.trim_end_matches('/');
-        if base.ends_with("/chat/completions") {
-            base.to_string()
-        } else {
-            format!("{}/chat/completions", base)
-        }
-    };
-
-    let mut request = client.post(&endpoint_url).json(&request_body);
-
-    if is_gemini_openai_compat {
-        request = request.header("Authorization", format!("Bearer {}", config.api_key));
-    } else {
-        match config.provider.as_str() {
-            "openai" | "openrouter" | "minimax" => {
-                request = request.header("Authorization", format!("Bearer {}", config.api_key));
-                if config.provider == "openrouter" {
-                    request = request.header("HTTP-Referer", "https://animesubs.app");
-                }
-            }
-            "gemini" => {}
-            _ => {}
-        }
-    }
-
-    eprintln!(
-        "Calling LLM API: {} with model {}",
-        endpoint_url, config.model
-    );
-
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("Failed to call LLM API: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("LLM API error ({}): {}", status, error_text));
-    }
-
-    let response_json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
-
-    let content = if is_gemini_openai_compat
-        || config.provider == "openai"
-        || config.provider == "openrouter"
-        || config.provider == "minimax"
-    {
-        response_json["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or("Missing content in OpenAI response")?
-            .to_string()
-    } else if config.provider == "gemini" {
-        response_json["candidates"][0]["content"]["parts"][0]["text"]
-            .as_str()
-            .ok_or("Missing content in Gemini response")?
-            .to_string()
-    } else if config.provider == "ollama" || config.provider == "lmstudio" {
-        response_json["message"]["content"]
-            .as_str()
-            .ok_or("Missing content in Ollama response")?
-            .to_string()
-    } else {
-        return Err("Unsupported provider".to_string());
-    };
-
-    eprintln!("LLM response content: {}", content);
-
-    // Remove reasoning/thinking blocks from models like DeepSeek R1, OpenAI o1, etc.
-    let thinking_regex = Regex::new(r"<thinking>.*?</thinking>").unwrap();
-    let content_without_thinking = thinking_regex.replace_all(&content, "").to_string();
-
-    let cleaned_content = clean_json_response(&content_without_thinking);
-
-    let translation_response: TranslationResponse = serde_json::from_str(&cleaned_content)
-        .map_err(|e| {
-            format!(
-                "Failed to parse translation JSON: {}. Response was: {}",
-                e, cleaned_content
-            )
-        })?;
-
-    Ok(translation_response.translations)
-}
 
 #[tauri::command]
 pub async fn translate_subtitles(
@@ -273,10 +122,21 @@ pub async fn translate_subtitles(
     }
 
     let map = translation_map.lock().await;
+    let mut changed_lines = 0usize;
     for line in &mut translated_lines {
         if let Some(translated_text) = map.get(&line.index) {
+            if translated_text.trim() != line.text.trim() {
+                changed_lines += 1;
+            }
             line.text = translated_text.clone();
         }
+    }
+
+    if changed_lines == 0 {
+        return Err(
+            "Translation produced no subtitle changes. Check the provider, model, prompt, and selected languages."
+                .to_string(),
+        );
     }
 
     Ok(SubtitleData {
@@ -438,12 +298,25 @@ fn reconstruct_vtt(translations: &[DialogLine]) -> String {
 #[tauri::command]
 pub async fn save_translated_subtitles(
     translated_data: SubtitleData,
-    output_path: String,
+    output_path: Option<String>,
     original_file_path: Option<String>,
+    temporary: Option<bool>,
 ) -> Result<OperationResult, String> {
+    let has_translated_changes = translated_data
+        .lines
+        .iter()
+        .any(|line| line.text.trim() != strip_ass_tags(&line.original_with_formatting).trim());
+
+    if !has_translated_changes {
+        return Err(
+            "Refusing to save translated subtitles because no translated lines differ from the source."
+                .to_string(),
+        );
+    }
+
     let content = match translated_data.format.as_str() {
         "ass" | "ssa" => {
-            if let Some(original_path) = original_file_path {
+            if let Some(ref original_path) = original_file_path {
                 let original_content = read_file_as_utf8(&original_path)?;
                 reconstruct_ass(&original_content, &translated_data.lines)
             } else if let Some(header) = &translated_data.ass_header {
@@ -469,11 +342,536 @@ pub async fn save_translated_subtitles(
         _ => return Err(format!("Unsupported format: {}", translated_data.format)),
     };
 
-    write_utf8_file(&output_path, &content, true)?;
+    let resolved_output_path = if let Some(path) = output_path {
+        path
+    } else if temporary.unwrap_or(false) {
+        let source_path = original_file_path
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or(&translated_data.source_path);
+        build_temp_subtitle_path(source_path, "translated", &translated_data.format)?
+            .to_string_lossy()
+            .to_string()
+    } else {
+        return Err("output_path is required when temporary save is disabled".to_string());
+    };
+
+    write_utf8_file(&resolved_output_path, &content, true)?;
 
     Ok(OperationResult {
         success: true,
-        message: format!("Saved translated subtitles to {}", output_path),
-        data: Some(output_path),
+        message: format!("Saved translated subtitles to {}", resolved_output_path),
+        data: Some(resolved_output_path),
     })
+}
+
+fn emit_job_progress(
+    app: &AppHandle,
+    current_file: usize,
+    total_files: usize,
+    progress: f64,
+    status: impl Into<String>,
+) {
+    let _ = app.emit(
+        "translation-job-progress",
+        TranslationJobProgress {
+            current_file,
+            total_files,
+            progress: progress.clamp(0.0, 100.0),
+            status: status.into(),
+        },
+    );
+}
+
+fn normalize_language_key(value: &str) -> String {
+    value.to_lowercase().replace('_', "-").trim().to_string()
+}
+
+fn to_ffmpeg_lang_code(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "und".to_string();
+    };
+    if value.is_empty() {
+        return "und".to_string();
+    }
+
+    let normalized = normalize_language_key(value);
+    let mapped = match normalized.as_str() {
+        "und" => Some("und"),
+        "en" | "eng" | "en-us" => Some("eng"),
+        "ja" | "jpn" => Some("jpn"),
+        "zh" | "zh-cn" | "zh-tw" => Some("zho"),
+        "ko" | "kor" => Some("kor"),
+        "es" | "spa" => Some("spa"),
+        "fr" | "fra" => Some("fra"),
+        "de" | "deu" => Some("deu"),
+        "pt" | "pt-br" | "por" => Some("por"),
+        "ru" | "rus" => Some("rus"),
+        "it" | "ita" => Some("ita"),
+        "ar" | "ara" => Some("ara"),
+        _ => None,
+    };
+    if let Some(code) = mapped {
+        return code.to_string();
+    }
+    if normalized.chars().count() == 3 {
+        return normalized;
+    }
+    let base = normalized.split('-').next().unwrap_or("und");
+    if base.chars().count() == 2 {
+        let last = base.chars().last().unwrap_or('x');
+        return format!("{}{}{}", base, last, last)
+            .chars()
+            .take(3)
+            .collect();
+    }
+    "und".to_string()
+}
+
+fn sanitize_lang_code_for_filename(value: Option<&str>) -> String {
+    let cleaned: String = value
+        .map(normalize_language_key)
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+        .collect();
+
+    if cleaned.is_empty() {
+        "und".to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn select_subtitle_format(output_format: &str, codec: &str) -> String {
+    if (output_format.is_empty() || output_format == "ass")
+        && (codec.contains("ass") || codec.contains("ssa"))
+    {
+        "ass".to_string()
+    } else if output_format == "srt" {
+        "srt".to_string()
+    } else if output_format == "vtt" {
+        "vtt".to_string()
+    } else if codec.contains("ass") || codec.contains("ssa") {
+        "ass".to_string()
+    } else if codec.contains("subrip") || codec.contains("srt") {
+        "srt".to_string()
+    } else if codec.contains("webvtt") {
+        "vtt".to_string()
+    } else {
+        "srt".to_string()
+    }
+}
+
+fn persistent_output_path(
+    video_path: &str,
+    output_directory: Option<&str>,
+    lang_code: &str,
+    track_index: u32,
+    format: &str,
+) -> String {
+    let video_pathbuf = Path::new(video_path);
+    let stem = video_pathbuf
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "subtitle".to_string());
+    let timestamp = chrono::Local::now().format("%Y%m%dT%H%M%S");
+    let filename = format!(
+        "{}_{}_{}_track{}.{}",
+        stem, lang_code, timestamp, track_index, format
+    );
+
+    if let Some(dir) = output_directory.filter(|d| !d.is_empty()) {
+        PathBuf::from(dir)
+            .join(filename)
+            .to_string_lossy()
+            .to_string()
+    } else {
+        let parent = video_pathbuf.parent().unwrap_or(Path::new("."));
+        parent.join(filename).to_string_lossy().to_string()
+    }
+}
+
+async fn cleanup_generated_file(file_path: Option<&str>) {
+    if let Some(file_path) = file_path {
+        let path = Path::new(file_path);
+        if path.exists() {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn start_translation_job(
+    app: AppHandle,
+    request: TranslationJobRequest,
+) -> Result<TranslationJobResult, String> {
+    let total_files = request.video_paths.len();
+    let mut failures = Vec::new();
+    let mut outputs = Vec::new();
+    let mut completed_files = 0usize;
+
+    if total_files == 0 {
+        return Err("No video files selected".to_string());
+    }
+
+    for (file_idx, video_path) in request.video_paths.iter().enumerate() {
+        let current_file = file_idx + 1;
+        let filename = Path::new(video_path)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| video_path.clone());
+        let file_base_progress = (file_idx as f64 / total_files as f64) * 100.0;
+        let file_progress_span = 100.0 / total_files as f64;
+        let progress = |step: f64| file_base_progress + (step * file_progress_span);
+
+        emit_job_progress(
+            &app,
+            current_file,
+            total_files,
+            progress(0.0),
+            format!("Processing {} ({}/{})", filename, current_file, total_files),
+        );
+
+        let use_temporary_files = request.embed_subtitles;
+        let mut extracted_path: Option<String> = None;
+        let mut translated_subtitle_path: Option<String> = None;
+
+        let file_result: Result<TranslationJobOutput, String> = async {
+            let video_info =
+                super::video::get_video_info(video_path.clone(), request.ffmpeg_path.clone())
+                    .await?;
+
+            let track_index = request.subtitle_track.unwrap_or(0);
+            let track = video_info
+                .subtitle_tracks
+                .get(track_index as usize)
+                .ok_or_else(|| format!("Track {} not found", track_index))?;
+
+            let format = select_subtitle_format(&request.output_format, &track.codec);
+
+            emit_job_progress(
+                &app,
+                current_file,
+                total_files,
+                progress(0.05),
+                format!("Extracting subtitles from {}...", filename),
+            );
+
+            let extract_result = super::subtitle::extract_subtitle(
+                video_path.clone(),
+                track_index,
+                None,
+                Some(format.clone()),
+                Some(use_temporary_files),
+                request.ffmpeg_path.clone(),
+            )
+            .await?;
+
+            if !extract_result.success {
+                return Err(extract_result
+                    .error
+                    .unwrap_or_else(|| "Failed to extract subtitle track".to_string()));
+            }
+
+            let extracted = extract_result
+                .output_path
+                .ok_or_else(|| "Subtitle extraction returned no output path".to_string())?;
+            extracted_path = Some(extracted.clone());
+
+            emit_job_progress(
+                &app,
+                current_file,
+                total_files,
+                progress(0.10),
+                format!("Parsing subtitles from {}...", filename),
+            );
+
+            let subtitle_data = super::subtitle::parse_subtitle_file(extracted.clone()).await?;
+            if subtitle_data.lines.is_empty() {
+                return Err("No dialog lines found in extracted subtitle".to_string());
+            }
+
+            emit_job_progress(
+                &app,
+                current_file,
+                total_files,
+                progress(0.20),
+                format!(
+                    "Translating {} ({} lines)...",
+                    filename,
+                    subtitle_data.lines.len()
+                ),
+            );
+
+            let translated_data = translate_subtitles(
+                app.clone(),
+                subtitle_data,
+                request.config.clone(),
+                if request.source_lang.is_empty() {
+                    "auto".to_string()
+                } else {
+                    request.source_lang.clone()
+                },
+                request.target_lang.clone(),
+                Some(request.batch_size.max(1)),
+                Some(request.concurrency),
+                Some(request.request_delay),
+            )
+            .await?;
+
+            let target_lang_value = if request.target_lang.is_empty() {
+                track.language.as_deref().unwrap_or("und")
+            } else {
+                request.target_lang.as_str()
+            };
+            let filename_lang_code = sanitize_lang_code_for_filename(Some(target_lang_value));
+            let ffmpeg_lang_code = to_ffmpeg_lang_code(Some(target_lang_value));
+            let persistent_path =
+                persistent_output_path(video_path, None, &filename_lang_code, track_index, &format);
+
+            emit_job_progress(
+                &app,
+                current_file,
+                total_files,
+                progress(0.80),
+                format!("Saving translated subtitles for {}...", filename),
+            );
+
+            let save_result = save_translated_subtitles(
+                translated_data,
+                if use_temporary_files {
+                    None
+                } else {
+                    Some(persistent_path)
+                },
+                extracted_path.clone(),
+                Some(use_temporary_files),
+            )
+            .await?;
+
+            if !save_result.success {
+                return Err(save_result.message);
+            }
+
+            let saved_subtitle = save_result
+                .data
+                .ok_or_else(|| "Save returned no subtitle path".to_string())?;
+            translated_subtitle_path = Some(saved_subtitle.clone());
+
+            if request.embed_subtitles {
+                emit_job_progress(
+                    &app,
+                    current_file,
+                    total_files,
+                    progress(0.90),
+                    format!("Embedding translated subtitles in {}...", filename),
+                );
+
+                let current_info =
+                    super::video::get_video_info(video_path.clone(), request.ffmpeg_path.clone())
+                        .await?;
+                let translated_title = format!("Translated ({})", filename_lang_code);
+                let mut tracks_to_remove: Vec<u32> = current_info
+                    .subtitle_tracks
+                    .iter()
+                    .filter(|t| {
+                        t.title.as_deref() == Some(translated_title.as_str())
+                            || t.title
+                                .as_deref()
+                                .map(|title| title.starts_with("Translated ("))
+                                .unwrap_or(false)
+                            || (to_ffmpeg_lang_code(t.language.as_deref()) == ffmpeg_lang_code
+                                && t.index != track_index)
+                    })
+                    .map(|t| t.index)
+                    .collect();
+                tracks_to_remove.sort_by(|a, b| b.cmp(a));
+
+                for track_to_remove in tracks_to_remove {
+                    let remove_result = super::embedding::remove_subtitle_track(
+                        video_path.clone(),
+                        track_to_remove,
+                        request.ffmpeg_path.clone(),
+                    )
+                    .await?;
+                    if !remove_result.success {
+                        return Err(remove_result.message);
+                    }
+                }
+
+                let embed_result = super::embedding::embed_subtitle(
+                    video_path.clone(),
+                    saved_subtitle,
+                    Some(ffmpeg_lang_code),
+                    Some(translated_title),
+                    true,
+                    request.ffmpeg_path.clone(),
+                    Some(request.use_mkvmerge),
+                )
+                .await?;
+
+                if !embed_result.success {
+                    return Err(embed_result.message);
+                }
+            }
+
+            Ok(TranslationJobOutput {
+                video_path: video_path.clone(),
+                subtitle_path: if request.embed_subtitles {
+                    None
+                } else {
+                    translated_subtitle_path.clone()
+                },
+                embedded: request.embed_subtitles,
+            })
+        }
+        .await;
+
+        if use_temporary_files {
+            cleanup_generated_file(extracted_path.as_deref()).await;
+            cleanup_generated_file(translated_subtitle_path.as_deref()).await;
+        }
+
+        match file_result {
+            Ok(output) => {
+                completed_files += 1;
+                outputs.push(output);
+                emit_job_progress(
+                    &app,
+                    current_file,
+                    total_files,
+                    progress(1.0),
+                    format!("Finished {}", filename),
+                );
+            }
+            Err(reason) => {
+                let failure = format!("{}: {}", filename, reason);
+                eprintln!("{}", failure);
+                emit_job_progress(
+                    &app,
+                    current_file,
+                    total_files,
+                    progress(1.0),
+                    format!("Error in {}: {}", filename, reason),
+                );
+                failures.push(failure);
+            }
+        }
+    }
+
+    let status = if failures.is_empty() {
+        "Translation complete!".to_string()
+    } else if completed_files == 0 {
+        format!("Translation failed: {}", failures[0])
+    } else {
+        format!(
+            "Translation finished with errors ({}/{}): {}",
+            completed_files, total_files, failures[0]
+        )
+    };
+    emit_job_progress(&app, total_files, total_files, 100.0, status);
+
+    Ok(TranslationJobResult {
+        completed_files,
+        total_files,
+        failures,
+        outputs,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(index: usize, text: &str, original: &str, start: &str, end: &str) -> DialogLine {
+        DialogLine {
+            index,
+            text: text.to_string(),
+            original_with_formatting: original.to_string(),
+            start: start.to_string(),
+            end: end.to_string(),
+            style: Some("Default".to_string()),
+            name: None,
+        }
+    }
+
+    #[test]
+    fn reconstruct_srt_writes_ordered_blocks() {
+        let lines = vec![
+            line(0, "Olá", "Hello", "00:00:01,000", "00:00:02,000"),
+            line(1, "Mundo", "World", "00:00:03,000", "00:00:04,000"),
+        ];
+
+        let output = reconstruct_srt(&lines);
+
+        assert!(output.contains("1\n00:00:01,000 --> 00:00:02,000\nOlá"));
+        assert!(output.contains("2\n00:00:03,000 --> 00:00:04,000\nMundo"));
+    }
+
+    #[test]
+    fn reconstruct_vtt_writes_webvtt_header() {
+        let lines = vec![line(0, "Bonjour", "Hello", "00:00:01.000", "00:00:02.000")];
+
+        let output = reconstruct_vtt(&lines);
+
+        assert!(output.starts_with("WEBVTT\n\n"));
+        assert!(output.contains("00:00:01.000 --> 00:00:02.000\nBonjour"));
+    }
+
+    #[test]
+    fn reconstruct_ass_replaces_dialogue_and_preserves_leading_tags() {
+        let original = r#"[Script Info]
+Title: Example
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, Encoding
+Style: Default,Arial,20,&H00FFFFFF,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\i1}Hello
+Dialogue: 0,0:00:03.00,0:00:04.00,Signs,,0,0,0,,Shop sign
+"#;
+        let lines = vec![line(0, "Olá", "{\\i1}Hello", "0:00:01.00", "0:00:02.00")];
+
+        let output = reconstruct_ass(original, &lines);
+
+        assert!(output.contains("Style: Default,Arial,20,&H00FFFFFF,0"));
+        assert!(output.contains("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\\i1}Olá"));
+        assert!(output.contains("Shop sign"));
+    }
+
+    #[test]
+    fn helper_maps_language_codes_for_embedding_and_filenames() {
+        assert_eq!(to_ffmpeg_lang_code(Some("pt-BR")), "por");
+        assert_eq!(to_ffmpeg_lang_code(Some("en_US")), "eng");
+        assert_eq!(to_ffmpeg_lang_code(Some("xx")), "xxx");
+        assert_eq!(to_ffmpeg_lang_code(None), "und");
+        assert_eq!(sanitize_lang_code_for_filename(Some("pt_BR!")), "pt-br");
+        assert_eq!(sanitize_lang_code_for_filename(None), "und");
+    }
+
+    #[test]
+    fn helper_selects_subtitle_format_from_setting_or_codec() {
+        assert_eq!(select_subtitle_format("ass", "ass"), "ass");
+        assert_eq!(select_subtitle_format("srt", "ass"), "srt");
+        assert_eq!(select_subtitle_format("", "webvtt"), "vtt");
+        assert_eq!(select_subtitle_format("", "unknown"), "srt");
+    }
+
+    #[test]
+    fn helper_places_persistent_output_in_custom_directory() {
+        let path = persistent_output_path(
+            "/videos/Episode 01.mkv",
+            Some("/tmp/animesubs-out"),
+            "por",
+            2,
+            "srt",
+        );
+
+        assert!(path.starts_with("/tmp/animesubs-out/"));
+        assert!(path.contains("Episode 01_por_"));
+        assert!(path.ends_with("_track2.srt"));
+    }
 }

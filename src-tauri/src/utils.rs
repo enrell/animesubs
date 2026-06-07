@@ -1,11 +1,31 @@
-use crate::models::*;
-use encoding_rs::Encoding;
 use chardetng::EncodingDetector;
+use encoding_rs::Encoding;
 use regex::Regex;
-use std::collections::HashMap;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+pub fn create_command(program: impl AsRef<OsStr>) -> Command {
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
+
+    #[cfg(windows)]
+    {
+        let mut command = Command::new(program);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+}
 
 pub fn find_executable_in_path(names: &[&str]) -> Option<PathBuf> {
     if let Some(paths) = env::var_os("PATH") {
@@ -28,7 +48,11 @@ pub fn get_ffmpeg_path(custom_path: Option<String>) -> String {
         }
     }
 
-    let exe_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let exe_name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
     if let Some(p) = find_executable_in_path(&[exe_name]) {
         return p.to_string_lossy().to_string();
     }
@@ -61,12 +85,59 @@ pub fn get_ffmpeg_path(custom_path: Option<String>) -> String {
     "ffmpeg".to_string()
 }
 
+pub fn build_temp_subtitle_path(
+    source_path: &str,
+    label: &str,
+    extension: &str,
+) -> Result<PathBuf, String> {
+    let temp_dir = env::temp_dir().join("animesubs");
+    fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temporary directory: {}", e))?;
+
+    let stem = Path::new(source_path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "subtitle".to_string());
+
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S_%3f");
+    Ok(temp_dir.join(format!("{}_{}_{}.{}", stem, label, timestamp, extension)))
+}
+
+pub fn is_mkv_container(extension: &str) -> bool {
+    matches!(extension.to_ascii_lowercase().as_str(), "mkv")
+}
+
+pub fn resolve_ffmpeg_subtitle_codec(
+    container_ext: &str,
+    subtitle_ext: &str,
+) -> Result<&'static str, String> {
+    match container_ext.to_ascii_lowercase().as_str() {
+        "mkv" => Ok(match subtitle_ext {
+            "ass" | "ssa" => "ass",
+            "srt" | "subrip" => "srt",
+            "vtt" | "webvtt" => "webvtt",
+            _ => "srt",
+        }),
+        "mp4" | "m4v" | "mov" => Ok("mov_text"),
+        "webm" => Ok("webvtt"),
+        _ => Err(format!(
+            "Embedding subtitles into .{} with ffmpeg is not supported reliably. Use MKV/mkvmerge or disable embed for this file.",
+            container_ext
+        )),
+    }
+}
+
 pub fn get_ffprobe_path(custom_ffmpeg_path: Option<String>) -> String {
     if let Some(path) = custom_ffmpeg_path {
         if !path.is_empty() {
             let path = Path::new(&path);
             if let Some(parent) = path.parent() {
-                let ffprobe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+                let ffprobe_name = if cfg!(windows) {
+                    "ffprobe.exe"
+                } else {
+                    "ffprobe"
+                };
                 let ffprobe = parent.join(ffprobe_name);
                 if ffprobe.exists() {
                     return ffprobe.to_string_lossy().to_string();
@@ -75,7 +146,11 @@ pub fn get_ffprobe_path(custom_ffmpeg_path: Option<String>) -> String {
         }
     }
 
-    let exe_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    let exe_name = if cfg!(windows) {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
     if let Some(p) = find_executable_in_path(&[exe_name]) {
         return p.to_string_lossy().to_string();
     }
