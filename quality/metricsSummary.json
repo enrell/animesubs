@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1",
+  "generatedAt": "2026-06-10T03:13:31Z",
+  "rustqutyVersion": "0.4.1",
+  "project": {
+    "name": "animesubs",
+    "rustEdition": "2021",
+    "workspaceRoot": "/home/enrell/projects/animesubs"
+  },
+  "collectors": {
+    "fmt": {
+      "status": "fail",
+      "details": {}
+    },
+    "clippy": {
+      "status": "error",
+      "warningCount": 0,
+      "details": []
+    },
+    "tests": {
+      "status": "pass",
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "runner": "nextest"
+    },
+    "coverage": {
+      "status": "error",
+      "linePercent": 0.0
+    },
+    "deny": {
+      "status": "fail",
+      "bannedCount": 0,
+      "licenseViolations": 0
+    },
+    "audit": {
+      "status": "pass",
+      "vulnerabilityCount": 0,
+      "criticalCount": 0
+    },
+    "hack": {
+      "status": "fail",
+      "featureCombinationsTested": 0
+    },
+    "mutants": {
+      "status": "skipped",
+      "mutationScore": 0.0,
+      "caught": 0,
+      "missed": 0
+    },
+    "duplicates": {
+      "status": "fail",
+      "totalLines": 55734,
+      "duplicateLines": 45181,
+      "filesWithDuplicates": 29,
+      "duplicateFiles": []
+    },
+    "loc": {
+      "status": "fail",
+      "totalLines": 55734,
+      "codeLines": 51958,
+      "commentLines": 39,
+      "blankLines": 3737,
+      "longLines": 392,
+      "maxLineLengthFound": 9528,
+      "maxLineLengthAllowed": 0,
+      "files": 29,
+      "filesWithLongLines": 0,
+      "longLineFiles": []
+    },
+    "size": {
+      "status": "pass",
+      "files": 29,
+      "maxLinesPerFile": 20563,
+      "maxCodeLinesPerFile": 17254,
+      "maxLinesPerFunction": 605,
+      "maxParametersPerFunction": 8,
+      "violations": []
+    },
+    "complexity": {
+      "status": "pass",
+      "functions": 1922,
+      "maxCyclomaticComplexity": 52,
+      "maxNestingDepth": 6,
+      "complexFunctions": 0,
+      "violations": []
+    }
+  }
+}

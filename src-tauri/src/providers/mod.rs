@@ -84,7 +84,10 @@ fn build_provider_request(
             body: serde_json::json!({
                 "contents": [{
                     "parts": [{
-                        "text": format!("{}\n\nTranslate the following:\n{}", system_prompt, user_content)
+                        "text": format!(
+                            "{}\n\nTranslate the following:\n{}",
+                            system_prompt, user_content
+                        )
                     }]
                 }],
                 "generationConfig": {
@@ -403,7 +406,11 @@ mod tests {
                 .unwrap();
 
             let response = format!(
-                "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                "HTTP/1.1 {} {}\r\n\
+                 content-type: application/json\r\n\
+                 content-length: {}\r\n\
+                 connection: close\r\n\
+                 \r\n{}",
                 status,
                 status_text(status),
                 response_body.len(),
@@ -680,7 +687,10 @@ after JSON"#;
             "message": {
                 "role": "assistant",
                 "thinking": "internal reasoning",
-                "content": format!("<thinking>hidden</thinking>{}", translation_content("Ollama OK"))
+                "content": format!(
+                    "<thinking>hidden</thinking>{}",
+                    translation_content("Ollama OK")
+                )
             },
             "done": true
         })

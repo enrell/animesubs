@@ -135,7 +135,8 @@ pub async fn translate_subtitles(
 
     if changed_lines == 0 {
         return Err(
-            "Translation produced no subtitle changes. Check the provider, model, prompt, and selected languages."
+            "Translation produced no subtitle changes. Check the \
+             provider, model, prompt, and selected languages."
                 .to_string(),
         );
     }
@@ -310,7 +311,8 @@ pub async fn save_translated_subtitles(
 
     if !has_translated_changes {
         return Err(
-            "Refusing to save translated subtitles because no translated lines differ from the source."
+            "Refusing to save translated subtitles because no \
+             translated lines differ from the source."
                 .to_string(),
         );
     }

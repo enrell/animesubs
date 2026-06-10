@@ -122,7 +122,8 @@ pub fn resolve_ffmpeg_subtitle_codec(
         "mp4" | "m4v" | "mov" => Ok("mov_text"),
         "webm" => Ok("webvtt"),
         _ => Err(format!(
-            "Embedding subtitles into .{} with ffmpeg is not supported reliably. Use MKV/mkvmerge or disable embed for this file.",
+            "Embedding subtitles into .{} with ffmpeg is not supported \
+             reliably. Use MKV/mkvmerge or disable embed for this file.",
             container_ext
         )),
     }
@@ -334,12 +335,26 @@ pub fn build_translation_prompt(style: &str, source_lang: &str, target_lang: &st
     );
 
     let style_instruction = match style {
-        "natural" => "Translate naturally, prioritizing how native speakers actually talk. Adapt idioms, jokes, and cultural references to feel native in the target language while preserving the original meaning and tone.",
-        "literal" => "Translate as literally as possible while still being grammatically correct. Preserve the original sentence structure and word choices where feasible.",
-        "localized" => "Fully localize the content. Adapt cultural references, names, jokes, and idioms to equivalents that work in the target culture. The goal is for the translation to feel like it was originally written in the target language.",
-        "formal" => "Use formal, polite language appropriate for professional or official contexts. Avoid slang, contractions, and casual expressions.",
-        "casual" => "Use casual, conversational language. Feel free to use contractions, common expressions, and a friendly tone.",
-        "honorifics" => "Preserve Japanese honorifics (san, kun, chan, sama, sensei, senpai) and cultural terms that don't have direct equivalents. Add brief context in parentheses if needed for clarity.",
+        "natural" => "Translate naturally, prioritizing how native speakers \
+            actually talk. Adapt idioms, jokes, and cultural references to \
+            feel native in the target language while preserving the original \
+            meaning and tone.",
+        "literal" => "Translate as literally as possible while still being \
+            grammatically correct. Preserve the original sentence structure \
+            and word choices where feasible.",
+        "localized" => "Fully localize the content. Adapt cultural references, \
+            names, jokes, and idioms to equivalents that work in the target \
+            culture. The goal is for the translation to feel like it was \
+            originally written in the target language.",
+        "formal" => "Use formal, polite language appropriate for professional \
+            or official contexts. Avoid slang, contractions, and casual \
+            expressions.",
+        "casual" => "Use casual, conversational language. Feel free to use \
+            contractions, common expressions, and a friendly tone.",
+        "honorifics" => "Preserve Japanese honorifics (san, kun, chan, sama, \
+            sensei, senpai) and cultural terms that don't have direct \
+            equivalents. Add brief context in parentheses if needed for \
+            clarity.",
         _ => "Translate naturally, balancing accuracy with readability.",
     };
 
@@ -355,14 +370,17 @@ CRITICAL RULES:
 4. Keep translations concise - subtitles need to be readable quickly
 5. Preserve line breaks (\n) where present in the source
 6. Do not add explanations or notes - only the translated text
-7. If a line contains only sound effects like "(笑)" or "♪", translate the sound description appropriately
-8. If a line is clearly music/lyrics (karaoke tags, music notes, or ending/opening song cues), leave it unchanged
+7. If a line contains only sound effects like "(笑)" or "♪", \
+translate the sound description appropriately
+8. If a line is clearly music/lyrics (karaoke tags, music notes, \
+or ending/opening song cues), leave it unchanged
 
 Example input:
 {{"lines": [{{"id": 0, "text": "Hello, how are you?"}}, {{"id": 1, "text": "I'm fine, thanks!"}}]}}
 
 Example output:
-{{"translations": [{{"id": 0, "text": "Translated line 0"}}, {{"id": 1, "text": "Translated line 1"}}]}}"#,
+{{"translations": [{{"id": 0, "text": "Translated line 0"}}, \
+{{"id": 1, "text": "Translated line 1"}}]}}"#,
         base_instruction, style_instruction
     )
 }
