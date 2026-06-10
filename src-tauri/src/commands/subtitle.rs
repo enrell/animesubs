@@ -1,6 +1,7 @@
 use crate::models::*;
 use crate::utils::*;
 use regex::Regex;
+use std::sync::LazyLock;
 use std::path::Path;
 
 #[tauri::command]
@@ -156,6 +157,9 @@ fn parse_ass_file(content: &str) -> Result<SubtitleData, String> {
     })
 }
 
+static HTML_TAG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
+
 fn parse_srt_file(content: &str) -> Result<SubtitleData, String> {
     let mut lines: Vec<DialogLine> = Vec::new();
     let mut current_index: Option<usize> = None;
@@ -196,8 +200,7 @@ fn parse_srt_file(content: &str) -> Result<SubtitleData, String> {
         }
 
         if current_index.is_some() && !trimmed.is_empty() {
-            let tag_regex = Regex::new(r"<[^>]*>").unwrap();
-            let clean = tag_regex.replace_all(trimmed, "").to_string();
+            let clean = HTML_TAG_RE.replace_all(trimmed, "").to_string();
             current_text.push(clean);
         }
     }
@@ -261,7 +264,6 @@ fn parse_vtt_file(content: &str) -> Result<SubtitleData, String> {
             if parts.len() >= 2 {
                 current_start = parts[0].trim().to_string();
                 current_end = parts[1]
-                    .trim()
                     .split_whitespace()
                     .next()
                     .unwrap_or("")
@@ -292,8 +294,7 @@ fn parse_vtt_file(content: &str) -> Result<SubtitleData, String> {
         }
 
         if in_cue && !trimmed.is_empty() {
-            let tag_regex = Regex::new(r"<[^>]*>").unwrap();
-            let clean = tag_regex.replace_all(trimmed, "").to_string();
+            let clean = HTML_TAG_RE.replace_all(trimmed, "").to_string();
             current_text.push(clean);
         }
     }

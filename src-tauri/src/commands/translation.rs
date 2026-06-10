@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn translate_subtitles(
     app: AppHandle,
     subtitle_data: SubtitleData,
@@ -22,7 +23,7 @@ pub async fn translate_subtitles(
     request_delay: Option<u64>,
 ) -> Result<SubtitleData, String> {
     let batch_size = batch_size.unwrap_or(20);
-    let concurrency = concurrency.unwrap_or(1).max(1).min(10);
+    let concurrency = concurrency.unwrap_or(1).clamp(1, 10);
     let request_delay_ms = request_delay.unwrap_or(0);
     let total_lines = subtitle_data.lines.len();
 
@@ -317,11 +318,11 @@ pub async fn save_translated_subtitles(
     let content = match translated_data.format.as_str() {
         "ass" | "ssa" => {
             if let Some(ref original_path) = original_file_path {
-                let original_content = read_file_as_utf8(&original_path)?;
+                let original_content = read_file_as_utf8(original_path)?;
                 reconstruct_ass(&original_content, &translated_data.lines)
             } else if let Some(header) = &translated_data.ass_header {
                 let mut result = header.clone();
-                result.push_str("\n");
+                result.push('\n');
                 for line in &translated_data.lines {
                     result.push_str(&format!(
                         "Dialogue: 0,{},{},{},{},0,0,0,,{}\n",
