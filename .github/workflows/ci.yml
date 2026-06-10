@@ -60,7 +60,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Install rustquty
-        run: cargo install rustquty
+        run: cargo install rustquty --version "^0.4.2"
 
       - name: Run quality gate
-        run: rustquty qa --project-dir src-tauri
+        run: rustquty qa --project-dir . --output-dir quality

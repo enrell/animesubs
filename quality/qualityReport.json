@@ -1,20 +1,27 @@
 {
   "schemaVersion": "1",
-  "generatedAt": "2026-06-10T03:13:31Z",
+  "generatedAt": "2026-06-10T03:42:32Z",
   "gateResult": "fail",
   "violations": [
+    {
+      "collector": "duplicates",
+      "metric": "duplicate_lines",
+      "baselineValue": 45181,
+      "currentValue": 73686,
+      "message": "duplicate lines (73686) exceed maximum (45181)"
+    },
     {
       "collector": "loc",
       "metric": "long_lines",
       "baselineValue": 0,
-      "currentValue": 392,
-      "message": "392 lines exceed max length (9528)"
+      "currentValue": 662,
+      "message": "662 lines exceed max length (9528)"
     }
   ],
   "summary": {
     "collectorsRun": 12,
-    "collectorsPassed": 9,
-    "collectorsFailed": 3,
+    "collectorsPassed": 8,
+    "collectorsFailed": 4,
     "collectorsSkipped": 0
   }
 }

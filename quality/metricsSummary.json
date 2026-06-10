@@ -1,11 +1,11 @@
 {
   "schemaVersion": "1",
-  "generatedAt": "2026-06-10T03:13:31Z",
+  "generatedAt": "2026-06-10T03:42:32Z",
   "rustqutyVersion": "0.4.1",
   "project": {
-    "name": "animesubs",
+    "name": "unknown",
     "rustEdition": "2021",
-    "workspaceRoot": "/home/enrell/projects/animesubs"
+    "workspaceRoot": "."
   },
   "collectors": {
     "fmt": {
@@ -50,36 +50,36 @@
     },
     "duplicates": {
       "status": "fail",
-      "totalLines": 55734,
-      "duplicateLines": 45181,
-      "filesWithDuplicates": 29,
+      "totalLines": 86647,
+      "duplicateLines": 73686,
+      "filesWithDuplicates": 34,
       "duplicateFiles": []
     },
     "loc": {
       "status": "fail",
-      "totalLines": 55734,
-      "codeLines": 51958,
-      "commentLines": 39,
-      "blankLines": 3737,
-      "longLines": 392,
-      "maxLineLengthFound": 9528,
+      "totalLines": 86647,
+      "codeLines": 82839,
+      "commentLines": 65,
+      "blankLines": 3743,
+      "longLines": 662,
+      "maxLineLengthFound": 10438,
       "maxLineLengthAllowed": 0,
-      "files": 29,
+      "files": 34,
       "filesWithLongLines": 0,
       "longLineFiles": []
     },
     "size": {
       "status": "pass",
-      "files": 29,
+      "files": 34,
       "maxLinesPerFile": 20563,
       "maxCodeLinesPerFile": 17254,
-      "maxLinesPerFunction": 605,
+      "maxLinesPerFunction": 661,
       "maxParametersPerFunction": 8,
       "violations": []
     },
     "complexity": {
       "status": "pass",
-      "functions": 1922,
+      "functions": 1934,
       "maxCyclomaticComplexity": 52,
       "maxNestingDepth": 6,
       "complexFunctions": 0,
