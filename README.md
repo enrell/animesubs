@@ -146,5 +146,49 @@ Go to Settings and configure your preferred provider:
 ### macOS security warning
 If macOS blocks the app, go to System Preferences > Security & Privacy and allow it.
 
+## Contributing
+
+### Quality Assurance
+
+All pull requests must pass the `rustquty` quality gate before merging. The CI pipeline runs:
+
+- **Clippy** - Rust linter with `-D warnings` (errors on any warning)
+- **Frontend typecheck** - Vue/TypeScript type checking
+- **Rust tests** - Unit and integration tests
+- **rustquty** - Code quality metrics against baseline
+
+To run quality checks locally:
+
+```bash
+# Install rustquty
+cargo install rustquty
+
+# Run quality gate
+rustquty qa --project-dir src-tauri
+
+# Update baseline after improvements
+rustquty update-baseline --project-dir src-tauri
+```
+
+### Development
+
+```bash
+# Clone the repository
+git clone https://github.com/enrell/animesubs.git
+cd animesubs
+
+# Install dependencies
+bun install
+
+# Run in development mode
+bun run tauri dev
+
+# Run tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Run linter
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+```
+
 ## License
 [GPL-3.0](LICENSE)
