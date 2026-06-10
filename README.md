@@ -15,8 +15,9 @@ Desktop app to extract, translate and embed subtitles into videos.
 - Auto-detect embedded subtitle tracks with language and codec info
 
 ### Translation
-- **Multiple LLM Providers**: OpenAI, Google Gemini, Ollama, LM Studio, OpenRouter
+- **Multiple LLM Providers**: OpenAI, Google Gemini, Ollama, LM Studio, llama.cpp, OpenRouter, NVIDIA NIM, MiniMax
 - **Translation Styles**: Natural, Literal, Localized, Formal, Casual, Honorifics-preserved
+- **Reasoning Models**: Full support for thinking/reasoning models (DeepSeek, QwQ, etc.)
 - **Smart Filtering**: Automatically skips OP/ED songs, karaoke, signs, and music lines
 - Batch processing with configurable batch size and request delay
 - Preserves ASS formatting and styles during translation
@@ -77,7 +78,9 @@ Go to Settings and configure your preferred provider:
 | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | Yes |
 | Ollama | `http://localhost:11434/v1` | No |
 | LM Studio | `http://localhost:1234/v1` | No |
+| llama.cpp | `http://localhost:8080/v1` | No |
 | OpenRouter | `https://openrouter.ai/api/v1` | Yes |
+| NVIDIA NIM | `https://integrate.api.nvidia.com/v1` | Yes |
 | MiniMax (Token Plan) | `https://api.minimax.io/v1` | Yes |
 
 ### Translation Options

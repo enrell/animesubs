@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Frontend typecheck
+        run: bun run vue-tsc --noEmit
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+        env:
+          DISPLAY: ':99.0'
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+        env:
+          DISPLAY: ':99.0'
