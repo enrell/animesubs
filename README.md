@@ -2,7 +2,8 @@
 
 Desktop app to extract, translate and embed subtitles into videos.
 
-<img width="1416" height="810" alt="Group 10" src="https://github.com/user-attachments/assets/1800e922-2a58-4170-b890-5523084eb16d" />
+<img width="1313" height="864" alt="image" src="https://github.com/user-attachments/assets/908574b4-a897-4921-a2d9-de9297d509d5" />
+
 
 ![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)
 
