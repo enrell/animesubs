@@ -3,8 +3,24 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'src-tauri/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - '.github/workflows/ci.yml'
 
 jobs:
   lint:
