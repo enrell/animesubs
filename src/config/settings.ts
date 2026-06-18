@@ -6,7 +6,6 @@ export interface Settings {
   sourceLanguage: string
   targetLanguage: string
   translationStyle: string
-  contextLines: number
   outputDirectory: string
   outputFormat: string
   ffmpegPath: string
@@ -25,7 +24,6 @@ export const defaultSettings: Settings = {
   sourceLanguage: '',
   targetLanguage: 'en',
   translationStyle: 'natural',
-  contextLines: 2,
   outputDirectory: '',
   outputFormat: 'srt',
   ffmpegPath: '',

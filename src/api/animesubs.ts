@@ -36,9 +36,6 @@ export const translateSubtitles = (params: {
   config: LlmConfig
   sourceLang: string
   targetLang: string
-  batchSize: number
-  concurrency: number
-  requestDelay: number
 }) => invoke<SubtitleData>('translate_subtitles', params)
 
 export const saveTranslatedSubtitles = (params: {
@@ -88,3 +85,10 @@ export const loadApiKey = (provider: string) =>
 
 export const saveApiKey = (provider: string, apiKey: string) =>
   invoke<OperationResult>('save_api_key', { provider, apiKey })
+
+export const fetchModels = (endpoint: string, apiKey?: string | null, provider?: string | null) =>
+  invoke<{ label: string; value: string }[]>('fetch_models', {
+    endpoint,
+    apiKey: apiKey || null,
+    provider: provider || null
+  })

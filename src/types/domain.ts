@@ -84,9 +84,6 @@ export interface TranslationJobRequest {
   useMkvmerge: boolean
   autoBackup: boolean
   keepOriginalTrack: boolean
-  batchSize: number
-  concurrency: number
-  requestDelay: number
 }
 
 export interface TranslationJobProgress {
@@ -97,8 +94,8 @@ export interface TranslationJobProgress {
 }
 
 export interface TranslationBatchProgress {
-  current_batch: number
-  total_batches: number
+  current_chunk: number
+  total_chunks: number
   lines_translated: number
   total_lines: number
   status: string

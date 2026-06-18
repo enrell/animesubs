@@ -226,23 +226,6 @@
 
                     <n-collapse class="wired-collapse">
                       <n-collapse-item title="Advanced signal controls" name="advanced">
-                        <n-grid :cols="3" :x-gap="12" :y-gap="12" responsive="screen">
-                          <n-gi>
-                            <n-form-item label="Batch">
-                              <n-input-number v-model:value="translationOptions.batchSize" :min="1" :max="1000" />
-                            </n-form-item>
-                          </n-gi>
-                          <n-gi>
-                            <n-form-item label="Parallel">
-                              <n-input-number v-model:value="translationOptions.concurrency" :min="1" :max="10" />
-                            </n-form-item>
-                          </n-gi>
-                          <n-gi>
-                            <n-form-item label="Delay">
-                              <n-input-number v-model:value="translationOptions.requestDelay" :min="0" :max="5000" :step="100" />
-                            </n-form-item>
-                          </n-gi>
-                        </n-grid>
                         <n-form-item label="Custom Prompt">
                           <n-input v-model:value="translationOptions.customPrompt" type="textarea" placeholder="Add temporary protocol instructions..." :rows="4" />
                         </n-form-item>
@@ -295,9 +278,6 @@ import {
   NCheckbox,
   NCollapse,
   NCollapseItem,
-  NGrid,
-  NGi,
-  NInputNumber,
   NInput,
   NProgress,
   NSpin,

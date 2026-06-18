@@ -5,9 +5,6 @@ export interface TranslationOptions {
   subtitleTrack: string
   embedSubtitles: boolean
   useMkvmerge: boolean
-  batchSize: number
-  concurrency: number
-  requestDelay: number
   customPrompt: string
 }
 
@@ -16,9 +13,6 @@ export const useTranslationOptions = () => {
     subtitleTrack: '',
     embedSubtitles: false,
     useMkvmerge: true,
-    batchSize: 100,
-    concurrency: 1,
-    requestDelay: 500,
     customPrompt: ''
   })
 

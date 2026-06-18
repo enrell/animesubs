@@ -1,25 +1,33 @@
+pub mod context;
+
+pub use context::{call_llm_api_with_context, generate_compaction_summary};
+
 use crate::models::{LLMConfig, TranslatedLine, TranslationLine, TranslationResponse};
 use crate::utils::{build_translation_prompt, clean_json_response};
 use regex::Regex;
 use reqwest::Client;
 
 #[derive(Debug)]
-struct ProviderRequest {
-    body: serde_json::Value,
-    endpoint_url: String,
-    response_format: ResponseFormat,
-    provider: String,
-    is_gemini_openai_compat: bool,
+pub(crate) struct ProviderRequest {
+    pub(crate) body: serde_json::Value,
+    pub(crate) endpoint_url: String,
+    pub(crate) response_format: ResponseFormat,
+    pub(crate) provider: String,
+    pub(crate) is_gemini_openai_compat: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResponseFormat {
+pub(crate) enum ResponseFormat {
     OpenAiCompatible,
     Gemini,
     OllamaNative,
 }
 
-fn build_gemini_generate_content_endpoint(endpoint: &str, model: &str, api_key: &str) -> String {
+pub(crate) fn build_gemini_generate_content_endpoint(
+    endpoint: &str,
+    model: &str,
+    api_key: &str,
+) -> String {
     let base = endpoint.trim_end_matches('/');
     if base.contains(":generateContent") {
         if base.contains("key=") {
@@ -192,7 +200,9 @@ pub async fn call_llm_api(
     parse_translation_response_content(&content)
 }
 
-pub fn parse_translation_response_content(content: &str) -> Result<Vec<TranslatedLine>, String> {
+pub(crate) fn parse_translation_response_content(
+    content: &str,
+) -> Result<Vec<TranslatedLine>, String> {
     let thinking_regex = Regex::new(r"(?is)<(?:thinking|think)>.*?</(?:thinking|think)>").unwrap();
     let content_without_thinking = thinking_regex.replace_all(content, "").to_string();
     let cleaned_content = clean_json_response(&content_without_thinking);
@@ -231,7 +241,7 @@ fn text_from_content_value(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-fn extract_response_content(
+pub(crate) fn extract_response_content(
     response_json: &serde_json::Value,
     response_format: ResponseFormat,
 ) -> Result<String, String> {

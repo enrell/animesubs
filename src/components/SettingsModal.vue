@@ -108,15 +108,6 @@
             />
           </n-form-item>
 
-          <n-form-item label="Context Lines" label-placement="left">
-            <n-input-number
-              v-model:value="settings.contextLines"
-              :min="0"
-              :max="10"
-              placeholder="Lines of context for better translation"
-            />
-          </n-form-item>
-
           <n-collapse>
             <n-collapse-item title="System Prompt Preview" name="prompt">
               <n-input
@@ -210,7 +201,6 @@ import {
   NFormItem,
   NInput,
   NInputGroup,
-  NInputNumber,
   NSelect,
   NButton,
   NIcon,
@@ -227,7 +217,7 @@ import {
   SaveOutline
 } from '@vicons/ionicons5'
 import { open } from '@tauri-apps/plugin-dialog'
-import { loadApiKey, saveApiKey } from '../api/animesubs'
+import { loadApiKey, saveApiKey, fetchModels as invokeFetchModels } from '../api/animesubs'
 import {
   defaultSettings,
   providerRequiresApiKey,
@@ -488,62 +478,14 @@ const fetchModels = async () => {
 
   loadingModels.value = true
   try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    }
-    
-    if (settings.apiKey) {
-      headers['Authorization'] = `Bearer ${settings.apiKey}`
-    }
-
-    // Handle different providers' model list endpoints
-    let url = `${settings.apiEndpoint}/models`
-    
-    if (settings.provider === 'gemini') {
-      // Gemini uses native API for listing models (not OpenAI-compatible endpoint)
-      url = `https://generativelanguage.googleapis.com/v1beta/models?key=${settings.apiKey}`
-      delete headers['Authorization']
-    }
-
-    const response = await fetch(url, { headers })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${await response.text()}`)
-    }
-    
-    const data = await response.json()
-    
-    // Handle different response formats
-    let models: { label: string; value: string }[] = []
-    
-    if (data.data && Array.isArray(data.data)) {
-      // OpenAI format
-      models = data.data.map((m: any) => ({
-        label: m.id,
-        value: m.id
-      }))
-    } else if (data.models && Array.isArray(data.models)) {
-      // Ollama format
-      models = data.models.map((m: any) => ({
-        label: m.name || m.model,
-        value: m.name || m.model
-      }))
-    } else if (Array.isArray(data)) {
-      // Gemini format
-      models = data
-        .filter((m: any) => m.name?.includes('gemini'))
-        .map((m: any) => ({
-          label: m.name.replace('models/', ''),
-          value: m.name.replace('models/', '')
-        }))
-    }
-
-    models.sort((a, b) => a.label.localeCompare(b.label))
+    // Use Tauri backend to fetch models (bypasses CORS for local/custom APIs)
+    const models = await invokeFetchModels(
+      settings.apiEndpoint,
+      settings.apiKey,
+      settings.provider
+    )
     modelOptions.value = models
-    
-    // Cache models for this provider
     localStorage.setItem(`animesubs-models-${settings.provider}`, JSON.stringify(models))
-    
     message.success(`Loaded ${models.length} models`)
   } catch (error) {
     message.error(`Failed to fetch models: ${error}`)

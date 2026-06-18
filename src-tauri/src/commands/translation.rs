@@ -1,128 +1,215 @@
 use crate::models::*;
-use crate::providers::call_llm_api;
+use crate::providers::{call_llm_api_with_context, generate_compaction_summary};
 use crate::utils::*;
-use futures::future::join_all;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Estimates the number of tokens for a given text.
+/// Heuristic: CJK chars ~1.5 tokens each, non-CJK ~0.25 tokens each.
+fn estimate_tokens(text: &str) -> usize {
+    let cjk_count = text.chars().filter(|c| is_cjk(*c)).count();
+    let total_chars = text.chars().count();
+    let non_cjk = total_chars.saturating_sub(cjk_count);
+    (cjk_count * 3 + non_cjk) / 2
+}
+
+fn is_cjk(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{4E00}'..='\u{9FFF}'
+            | '\u{3040}'..='\u{309F}'
+            | '\u{30A0}'..='\u{30FF}'
+            | '\u{AC00}'..='\u{D7AF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{3400}'..='\u{4DBF}'
+    )
+}
+
+/// Default context window in tokens for modern LLMs.
+const DEFAULT_CONTEXT_WINDOW: usize = 128_000;
+/// Fraction of context window usable for input (leaves room for prompt + response).
+const INPUT_CONTEXT_RATIO: f64 = 0.65;
+/// Maximum tokens for a compaction summary.
+const MAX_COMPACTION_TOKENS: usize = 2_000;
+
+/// Splits subtitle lines into chunks that fit within the context window.
+fn plan_chunks(
+    lines: &[DialogLine],
+    max_input_tokens: usize,
+) -> Vec<Vec<TranslationLine>> {
+    let effective_budget = max_input_tokens.saturating_sub(MAX_COMPACTION_TOKENS);
+
+    let mut chunks: Vec<Vec<TranslationLine>> = Vec::new();
+    let mut current_chunk: Vec<TranslationLine> = Vec::new();
+    let mut current_tokens = 0usize;
+
+    for line in lines {
+        let line_tokens = estimate_tokens(&line.text);
+        let budget = if chunks.is_empty() {
+            max_input_tokens
+        } else {
+            effective_budget
+        };
+
+        if !current_chunk.is_empty() && current_tokens + line_tokens > budget {
+            chunks.push(std::mem::take(&mut current_chunk));
+            current_tokens = 0;
+        }
+
+        current_tokens += line_tokens;
+        current_chunk.push(TranslationLine {
+            id: line.index,
+            text: line.text.clone(),
+        });
+    }
+
+    if !current_chunk.is_empty() {
+        chunks.push(current_chunk);
+    }
+
+    if chunks.is_empty() {
+        chunks.push(Vec::new());
+    }
+
+    chunks
+}
+
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub async fn translate_subtitles(
     app: AppHandle,
     subtitle_data: SubtitleData,
     config: LLMConfig,
     source_lang: String,
     target_lang: String,
-    batch_size: Option<usize>,
-    concurrency: Option<usize>,
-    request_delay: Option<u64>,
 ) -> Result<SubtitleData, String> {
-    let batch_size = batch_size.unwrap_or(20);
-    let concurrency = concurrency.unwrap_or(1).clamp(1, 10);
-    let request_delay_ms = request_delay.unwrap_or(0);
     let total_lines = subtitle_data.lines.len();
 
     if total_lines == 0 {
         return Err("No dialog lines to translate".to_string());
     }
 
-    let mut translated_lines = subtitle_data.lines.clone();
-    let translation_map: Arc<Mutex<HashMap<usize, String>>> = Arc::new(Mutex::new(HashMap::new()));
-    let completed_batches: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
-
-    let batches: Vec<(usize, Vec<TranslationLine>)> = subtitle_data
+    // Estimate total tokens and decide strategy
+    let total_text_tokens: usize = subtitle_data
         .lines
-        .chunks(batch_size)
-        .enumerate()
-        .map(|(idx, chunk)| {
-            let batch_lines: Vec<TranslationLine> = chunk
-                .iter()
-                .map(|line| TranslationLine {
-                    id: line.index,
-                    text: line.text.clone(),
-                })
-                .collect();
-            (idx, batch_lines)
-        })
-        .collect();
+        .iter()
+        .map(|l| estimate_tokens(&l.text))
+        .sum();
+    let max_input_tokens =
+        (DEFAULT_CONTEXT_WINDOW as f64 * INPUT_CONTEXT_RATIO) as usize;
 
-    let total_batches = batches.len();
+    let is_single_call = total_text_tokens <= max_input_tokens;
 
-    for batch_group in batches.chunks(concurrency) {
-        let mut handles = Vec::new();
+    eprintln!(
+        "Translation strategy: {} (est. {} tokens, max input {})",
+        if is_single_call {
+            "single call"
+        } else {
+            "chunked with compaction"
+        },
+        total_text_tokens,
+        max_input_tokens
+    );
 
-        for (batch_idx, batch_lines) in batch_group {
-            let config = config.clone();
-            let source_lang = source_lang.clone();
-            let target_lang = target_lang.clone();
-            let translation_map = Arc::clone(&translation_map);
-            let completed_batches = Arc::clone(&completed_batches);
-            let app = app.clone();
-            let batch_idx = *batch_idx;
-            let batch_lines = batch_lines.clone();
+    let chunks = if is_single_call {
+        let all_lines: Vec<TranslationLine> = subtitle_data
+            .lines
+            .iter()
+            .map(|line| TranslationLine {
+                id: line.index,
+                text: line.text.clone(),
+            })
+            .collect();
+        vec![all_lines]
+    } else {
+        plan_chunks(&subtitle_data.lines, max_input_tokens)
+    };
 
-            let handle = tokio::spawn(async move {
-                match call_llm_api(&config, &batch_lines, &source_lang, &target_lang).await {
-                    Ok(translations) => {
-                        let mut map = translation_map.lock().await;
-                        for translated in translations {
-                            map.insert(translated.id, translated.text);
-                        }
+    let total_chunks = chunks.len();
+    let translation_map: Arc<Mutex<HashMap<usize, String>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let mut compacted_context: Option<String> = None;
 
-                        let mut completed = completed_batches.lock().await;
-                        *completed += 1;
-
-                        let progress = TranslationProgress {
-                            current_batch: *completed,
-                            total_batches,
-                            lines_translated: map.len(),
-                            total_lines,
-                            status: "translating".to_string(),
-                        };
-
-                        let _ = app.emit("translation-progress", &progress);
-                        eprintln!("Translation progress: {:?}", progress);
-
-                        Ok(())
-                    }
-                    Err(e) => {
-                        let _ = app.emit(
-                            "translation-error",
-                            format!("Batch {} failed: {}", batch_idx + 1, e),
-                        );
-                        Err(format!(
-                            "Translation failed at batch {}: {}",
-                            batch_idx + 1,
-                            e
-                        ))
-                    }
-                }
-            });
-
-            handles.push(handle);
+    for (chunk_idx, chunk_lines) in chunks.into_iter().enumerate() {
+        if chunk_lines.is_empty() {
+            continue;
         }
 
-        let results = join_all(handles).await;
+        let chunk_num = chunk_idx + 1;
+        let status = if total_chunks == 1 {
+            format!("Translating all {} lines...", total_lines)
+        } else {
+            format!(
+                "Translating chunk {}/{} ({} lines)...",
+                chunk_num,
+                total_chunks,
+                chunk_lines.len()
+            )
+        };
 
-        for result in results {
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => return Err(e),
-                Err(e) => return Err(format!("Task panicked: {}", e)),
+        let progress = TranslationProgress {
+            current_chunk: chunk_idx,
+            total_chunks,
+            lines_translated: translation_map.lock().await.len(),
+            total_lines,
+            status,
+        };
+        let _ = app.emit("translation-progress", &progress);
+
+        let translations = call_llm_api_with_context(
+            &config,
+            &chunk_lines,
+            &source_lang,
+            &target_lang,
+            compacted_context.as_deref(),
+        )
+        .await?;
+
+        {
+            let mut map = translation_map.lock().await;
+            for translated in &translations {
+                map.insert(translated.id, translated.text.clone());
             }
         }
 
-        if request_delay_ms > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(request_delay_ms)).await;
+        // Generate compaction summary for next chunk
+        if chunk_idx < total_chunks - 1 {
+            let translated_sample: Vec<String> = translations
+                .iter()
+                .take(50)
+                .map(|t| {
+                    let src = chunk_lines
+                        .iter()
+                        .find(|l| l.id == t.id)
+                        .map(|l| l.text.as_str())
+                        .unwrap_or("?");
+                    format!("[{}] → [{}]", src, t.text)
+                })
+                .collect();
+
+            let summary = generate_compaction_summary(
+                &config,
+                &translated_sample,
+                &source_lang,
+                &target_lang,
+            )
+            .await;
+
+            match summary {
+                Ok(s) => compacted_context = Some(s),
+                Err(e) => {
+                    eprintln!("Compaction summary failed (non-fatal): {}", e);
+                }
+            }
         }
     }
 
     let map = translation_map.lock().await;
+    let mut translated_lines = subtitle_data.lines.clone();
     let mut changed_lines = 0usize;
     for line in &mut translated_lines {
         if let Some(translated_text) = map.get(&line.index) {
@@ -140,6 +227,15 @@ pub async fn translate_subtitles(
                 .to_string(),
         );
     }
+
+    let final_progress = TranslationProgress {
+        current_chunk: total_chunks,
+        total_chunks,
+        lines_translated: map.len(),
+        total_lines,
+        status: "done".to_string(),
+    };
+    let _ = app.emit("translation-progress", &final_progress);
 
     Ok(SubtitleData {
         format: subtitle_data.format,
@@ -617,9 +713,6 @@ pub async fn start_translation_job(
                     request.source_lang.clone()
                 },
                 request.target_lang.clone(),
-                Some(request.batch_size.max(1)),
-                Some(request.concurrency),
-                Some(request.request_delay),
             )
             .await?;
 

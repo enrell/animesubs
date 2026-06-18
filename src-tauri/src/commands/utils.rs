@@ -1,5 +1,6 @@
 use crate::models::*;
 use crate::utils::*;
+use reqwest::Client;
 use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
@@ -136,4 +137,110 @@ pub async fn save_api_key(
         message: "API key saved".to_string(),
         data: None,
     })
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct ModelEntry {
+    pub label: String,
+    pub value: String,
+}
+
+#[tauri::command]
+pub async fn fetch_models(
+    endpoint: String,
+    api_key: Option<String>,
+    provider: Option<String>,
+) -> Result<Vec<ModelEntry>, String> {
+    let client = Client::new();
+    let provider = provider
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    // Gemini uses the native API for listing models
+    let (url, use_bearer) = if provider == "gemini" {
+        let key = api_key.as_deref().unwrap_or_default();
+        (
+            format!(
+                "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+                key
+            ),
+            false,
+        )
+    } else {
+        let base = endpoint.trim_end_matches('/');
+        (format!("{}/models", base), true)
+    };
+
+    let mut request = client.get(&url);
+
+    if use_bearer {
+        if let Some(ref key) = api_key {
+            if !key.is_empty() {
+                request = request.header("Authorization", format!("Bearer {}", key));
+            }
+        }
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch models: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Models API error ({}): {}", status, error_text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse models response: {}", e))?;
+
+    let mut models: Vec<ModelEntry> = Vec::new();
+
+    // OpenAI / OpenAI-compatible format: { "data": [{ "id": "..." }] }
+    if let Some(arr) = data.get("data").and_then(|v| v.as_array()) {
+        for item in arr {
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                models.push(ModelEntry {
+                    label: id.to_string(),
+                    value: id.to_string(),
+                });
+            }
+        }
+    }
+    // Ollama format: { "models": [{ "name": "..." }] }
+    else if let Some(arr) = data.get("models").and_then(|v| v.as_array()) {
+        for item in arr {
+            let name = item
+                .get("name")
+                .or_else(|| item.get("model"))
+                .and_then(|v| v.as_str());
+            if let Some(name) = name {
+                models.push(ModelEntry {
+                    label: name.to_string(),
+                    value: name.to_string(),
+                });
+            }
+        }
+    }
+    // Gemini format: array of { "name": "models/gemini-..." }
+    else if let Some(arr) = data.as_array() {
+        for item in arr {
+            if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
+                if name.contains("gemini") {
+                    let clean = name.strip_prefix("models/").unwrap_or(name);
+                    models.push(ModelEntry {
+                        label: clean.to_string(),
+                        value: clean.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    models.sort_by(|a, b| a.label.cmp(&b.label));
+    Ok(models)
 }

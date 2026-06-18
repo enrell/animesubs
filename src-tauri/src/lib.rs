@@ -25,6 +25,7 @@ pub fn run() {
             utility_commands::delete_file,
             utility_commands::load_api_key,
             utility_commands::save_api_key,
+            utility_commands::fetch_models,
             subtitle::parse_subtitle_file,
             translation::translate_subtitles,
             translation::save_translated_subtitles,

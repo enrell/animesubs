@@ -89,8 +89,8 @@ pub struct TranslatedLine {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TranslationProgress {
-    pub current_batch: usize,
-    pub total_batches: usize,
+    pub current_chunk: usize,
+    pub total_chunks: usize,
     pub lines_translated: usize,
     pub total_lines: usize,
     pub status: String,
@@ -120,9 +120,6 @@ pub struct TranslationJobRequest {
     pub use_mkvmerge: bool,
     pub auto_backup: bool,
     pub keep_original_track: bool,
-    pub batch_size: usize,
-    pub concurrency: usize,
-    pub request_delay: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

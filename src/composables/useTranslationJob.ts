@@ -144,13 +144,14 @@ export const useTranslationJob = ({
       const jobProgress = latestJobProgress.value
       if (!jobProgress?.totalFiles) return
 
-      const batchRatio = event.payload.total_batches > 0
-        ? event.payload.current_batch / event.payload.total_batches
+      const chunkRatio = event.payload.total_chunks > 0
+        ? event.payload.current_chunk / event.payload.total_chunks
         : 0
       const fileBase = ((jobProgress.currentFile - 1) / jobProgress.totalFiles) * 100
       const fileSpan = 100 / jobProgress.totalFiles
-      setProgress(fileBase + ((0.2 + (0.6 * batchRatio)) * fileSpan))
-      currentStatus.value = `Translating ${event.payload.lines_translated}/${event.payload.total_lines} lines...`
+      setProgress(fileBase + ((0.2 + (0.6 * chunkRatio)) * fileSpan))
+      currentStatus.value = event.payload.status
+        || `Translating ${event.payload.lines_translated}/${event.payload.total_lines} lines...`
     })
 
     try {
@@ -174,10 +175,7 @@ export const useTranslationJob = ({
         embedSubtitles: translationOptions.embedSubtitles,
         useMkvmerge: translationOptions.useMkvmerge,
         autoBackup: settings.autoBackup,
-        keepOriginalTrack: settings.keepOriginalTrack,
-        batchSize: translationOptions.batchSize,
-        concurrency: translationOptions.concurrency,
-        requestDelay: translationOptions.requestDelay
+        keepOriginalTrack: settings.keepOriginalTrack
       })
 
       setProgress(100)
