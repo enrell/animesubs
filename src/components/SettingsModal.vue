@@ -310,6 +310,7 @@ const styleOptions = [
 ]
 
 const formatOptions = [
+  { label: 'Auto-detect (match source track)', value: '' },
   { label: 'SRT (.srt)', value: 'srt' },
   { label: 'ASS/SSA (.ass)', value: 'ass' },
   { label: 'WebVTT (.vtt)', value: 'vtt' }

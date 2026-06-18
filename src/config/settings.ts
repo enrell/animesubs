@@ -25,7 +25,7 @@ export const defaultSettings: Settings = {
   targetLanguage: 'en',
   translationStyle: 'natural',
   outputDirectory: '',
-  outputFormat: 'srt',
+  outputFormat: '',
   ffmpegPath: '',
   autoBackup: true,
   keepOriginalTrack: true
