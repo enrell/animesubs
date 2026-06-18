@@ -18,20 +18,24 @@ jobs:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             artifact: linux-amd64
+            binary_ext: ""
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: macos-arm64
-          - os: macos-latest
+            binary_ext: ""
+          - os: macos-13
             target: x86_64-apple-darwin
             artifact: macos-amd64
+            binary_ext: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: windows-amd64
+            binary_ext: ".exe"
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
 
@@ -59,13 +63,32 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Fix AppImage EGL crash
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x fix-appimage.sh
+          APPIMAGE=$(find src-tauri/target -name "*.AppImage" | head -1)
+          if [ -n "$APPIMAGE" ]; then
+            ./fix-appimage.sh "$APPIMAGE"
+          fi
+
+      - name: Prepare raw binary
+        shell: bash
+        run: |
+          BINARY="src-tauri/target/${{ matrix.target }}/release/animesubs${{ matrix.binary_ext }}"
+          if [ -f "$BINARY" ]; then
+            cp "$BINARY" "animesubs-${{ matrix.artifact }}${{ matrix.binary_ext }}"
+          fi
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: animesubs-${{ matrix.artifact }}
           path: |
+            animesubs-${{ matrix.artifact }}${{ matrix.binary_ext }}
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
             src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
@@ -78,7 +101,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
 
@@ -86,8 +109,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            **/animesubs-*
             **/*.AppImage
             **/*.deb
+            **/*.rpm
             **/*.dmg
             **/*.exe
             **/*.msi
