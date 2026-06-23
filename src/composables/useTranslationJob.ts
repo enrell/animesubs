@@ -93,13 +93,45 @@ export const useTranslationJob = ({
   const currentStatus = ref('')
   const estimatedTime = ref('')
   const currentFileIndex = ref(0)
+  let queuedProgress: number | null = null
+  let queuedStatus: string | null = null
+  let progressFrame: number | null = null
 
   const setProgress = (value: number) => {
     const clamped = Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0))
     translationProgress.value = clamped
   }
 
+  const flushProgressUpdate = () => {
+    progressFrame = null
+    if (queuedProgress !== null) {
+      setProgress(queuedProgress)
+      queuedProgress = null
+    }
+    if (queuedStatus !== null) {
+      currentStatus.value = queuedStatus
+      queuedStatus = null
+    }
+  }
+
+  const queueProgressUpdate = (progress: number, status?: string) => {
+    queuedProgress = progress
+    if (status !== undefined) {
+      queuedStatus = status
+    }
+
+    if (progressFrame === null) {
+      progressFrame = window.requestAnimationFrame(flushProgressUpdate)
+    }
+  }
+
   const resetProgress = () => {
+    if (progressFrame !== null) {
+      window.cancelAnimationFrame(progressFrame)
+      progressFrame = null
+    }
+    queuedProgress = null
+    queuedStatus = null
     setProgress(0)
     currentStatus.value = ''
     estimatedTime.value = ''
@@ -150,8 +182,10 @@ export const useTranslationJob = ({
     const unlistenProgress = await listen<TranslationJobProgress>('translation-job-progress', (event) => {
       latestJobProgress.value = event.payload
       currentFileIndex.value = Math.max(0, event.payload.currentFile - 1)
-      setProgress(event.payload.progress)
-      currentStatus.value = localizeBackendMessage(event.payload.status, t)
+      queueProgressUpdate(
+        event.payload.progress,
+        localizeBackendMessage(event.payload.status, t)
+      )
     })
     const unlistenBatchProgress = await listen<TranslationBatchProgress>('translation-progress', (event) => {
       const jobProgress = latestJobProgress.value
@@ -162,13 +196,15 @@ export const useTranslationJob = ({
         : 0
       const fileBase = ((jobProgress.currentFile - 1) / jobProgress.totalFiles) * 100
       const fileSpan = 100 / jobProgress.totalFiles
-      setProgress(fileBase + ((0.2 + (0.6 * chunkRatio)) * fileSpan))
-      currentStatus.value = event.payload.status
+      queueProgressUpdate(
+        fileBase + ((0.2 + (0.6 * chunkRatio)) * fileSpan),
+        event.payload.status
         ? localizeBackendMessage(event.payload.status, t)
         : t('status.translatingLines', {
           translated: event.payload.lines_translated,
           total: event.payload.total_lines
         })
+      )
     })
 
     try {
@@ -195,6 +231,7 @@ export const useTranslationJob = ({
         keepOriginalTrack: settings.keepOriginalTrack
       })
 
+      flushProgressUpdate()
       setProgress(100)
       if (result.failures.length === 0) {
         currentStatus.value = t('status.translationComplete')

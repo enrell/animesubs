@@ -27,19 +27,27 @@ export const useTranslationOptions = () => {
     }
   }
 
-  const saveTranslationOptions = () => {
-    try {
-      localStorage.setItem(TRANSLATION_OPTIONS_STORAGE_KEY, JSON.stringify(translationOptions))
-    } catch (e) {
-      console.error('Failed to save translation options:', e)
-    }
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+  const scheduleSave = () => {
+    if (saveTimer !== null) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      saveTimer = null
+      try {
+        localStorage.setItem(
+          TRANSLATION_OPTIONS_STORAGE_KEY,
+          JSON.stringify(translationOptions)
+        )
+      } catch (e) {
+        console.error('Failed to save translation options:', e)
+      }
+    }, 300)
   }
 
-  watch(translationOptions, saveTranslationOptions, { deep: true })
+  watch(translationOptions, scheduleSave, { deep: true })
 
   return {
     translationOptions,
-    loadTranslationOptions,
-    saveTranslationOptions
+    loadTranslationOptions
   }
 }

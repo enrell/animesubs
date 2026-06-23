@@ -21,25 +21,25 @@ export const useAppTheme = () => {
 
   const themeOverrides = computed<GlobalThemeOverrides>(() => ({
     common: {
-      primaryColor: '#c8bd98',
-      primaryColorHover: '#e0d4a8',
-      primaryColorPressed: '#a89d7d',
-      primaryColorSuppl: '#c99a86',
+      primaryColor: '#7ce8a0',
+      primaryColorHover: '#8fffb8',
+      primaryColorPressed: '#5ab878',
+      primaryColorSuppl: '#8088cc',
       borderRadius: '0px',
       ...(isDark.value ? {
-        bodyColor: '#030303',
-        cardColor: '#121013',
-        modalColor: '#121013',
-        popoverColor: '#1c151d',
-        tableColor: '#121013',
-        inputColor: '#050505',
-        actionColor: '#1c151d',
-        hoverColor: 'rgba(201, 154, 134, 0.12)',
-        borderColor: 'rgba(200, 189, 152, 0.22)',
-        dividerColor: 'rgba(200, 189, 152, 0.22)',
-        textColor1: '#e0d4a8',
-        textColor2: '#c8bd98',
-        textColor3: '#8d8064'
+        bodyColor: '#020205',
+        cardColor: '#0a0a18',
+        modalColor: '#0a0a18',
+        popoverColor: '#111128',
+        tableColor: '#0a0a18',
+        inputColor: '#020208',
+        actionColor: '#111128',
+        hoverColor: 'rgba(124, 232, 160, 0.10)',
+        borderColor: 'rgba(124, 232, 160, 0.16)',
+        dividerColor: 'rgba(124, 232, 160, 0.16)',
+        textColor1: '#8fffb8',
+        textColor2: '#7ce8a0',
+        textColor3: '#4a7a5c'
       } : {})
     }
   }))

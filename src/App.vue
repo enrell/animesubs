@@ -21,40 +21,56 @@
               </div>
 
               <div class="header-actions">
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    <n-button quaternary circle class="icon-button" @click="toggleTheme">
-                      <template #icon>
-                        <n-icon size="18">
-                          <sunny-outline v-if="isDark" />
-                          <moon-outline v-else />
-                        </n-icon>
-                      </template>
-                    </n-button>
-                  </template>
-                  {{ isDark ? t('app.lightMode') : t('app.darkMode') }}
-                </n-tooltip>
-                <n-dropdown
-                  trigger="click"
-                  :options="interfaceDropdownOptions"
-                  @select="changeInterfaceLanguage"
+                <n-button
+                  quaternary
+                  circle
+                  class="icon-button"
+                  :title="isDark ? t('app.lightMode') : t('app.darkMode')"
+                  @click="toggleTheme"
                 >
-                  <n-button quaternary circle class="icon-button" :title="t('app.language')">
+                  <template #icon>
+                    <n-icon size="18">
+                      <sunny-outline v-if="isDark" />
+                      <moon-outline v-else />
+                    </n-icon>
+                  </template>
+                </n-button>
+                <div class="language-menu-wrap">
+                  <n-button
+                    quaternary
+                    circle
+                    class="icon-button"
+                    :title="t('app.language')"
+                    @click="showLanguageMenu = !showLanguageMenu"
+                  >
                     <template #icon>
                       <n-icon size="18"><language-outline /></n-icon>
                     </template>
                   </n-button>
-                </n-dropdown>
-                <n-tooltip trigger="hover">
-                  <template #trigger>
-                    <n-button quaternary circle class="icon-button" @click="showSettings = true">
-                      <template #icon>
-                        <n-icon size="18"><settings-outline /></n-icon>
-                      </template>
-                    </n-button>
+                  <div v-if="showLanguageMenu" class="language-menu">
+                    <button
+                      v-for="option in interfaceLanguageSelectOptions"
+                      :key="option.value"
+                      type="button"
+                      class="language-menu-item"
+                      :class="{ active: option.value === cachedSettings?.interfaceLanguage }"
+                      @click="changeInterfaceLanguage(option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+                <n-button
+                  quaternary
+                  circle
+                  class="icon-button"
+                  :title="t('app.settings')"
+                  @click="showSettings = true"
+                >
+                  <template #icon>
+                    <n-icon size="18"><settings-outline /></n-icon>
                   </template>
-                  {{ t('app.settings') }}
-                </n-tooltip>
+                </n-button>
               </div>
             </header>
 
@@ -62,8 +78,8 @@
               <section
                 class="hero-port"
                 :class="{ 'drop-zone-active': isDragging }"
-                @dragover.prevent="isDragging = true"
-                @dragleave.prevent="isDragging = false"
+                @dragover.prevent="setDragging(true)"
+                @dragleave.prevent="setDragging(false)"
                 @drop.prevent="handleDrop"
               >
                 <div class="hero-copy">
@@ -147,22 +163,25 @@
                               <span v-if="track.forced" class="track-flag warn">{{ t('app.forced') }}</span>
                             </div>
                             <div class="track-actions">
-                              <n-tooltip trigger="hover">
-                                <template #trigger>
-                                  <n-button size="tiny" quaternary @click="extractSubtitle(file, track.index)" :loading="extractingSubtitle === file.path">
-                                    <template #icon><n-icon><download-outline /></n-icon></template>
-                                  </n-button>
-                                </template>
-                                {{ t('app.extractSubtitle') }}
-                              </n-tooltip>
-                              <n-tooltip trigger="hover">
-                                <template #trigger>
-                                  <n-button size="tiny" quaternary type="success" @click="backupSubtitle(file, track.index)" :loading="backingUp === file.path">
-                                    <template #icon><n-icon><shield-checkmark-outline /></n-icon></template>
-                                  </n-button>
-                                </template>
-                                {{ t('app.backupSubtitle') }}
-                              </n-tooltip>
+                              <n-button
+                                size="tiny"
+                                quaternary
+                                :title="t('app.extractSubtitle')"
+                                @click="extractSubtitle(file, track.index)"
+                                :loading="extractingSubtitle === file.path"
+                              >
+                                <template #icon><n-icon><download-outline /></n-icon></template>
+                              </n-button>
+                              <n-button
+                                size="tiny"
+                                quaternary
+                                type="success"
+                                :title="t('app.backupSubtitle')"
+                                @click="backupSubtitle(file, track.index)"
+                                :loading="backingUp === file.path"
+                              >
+                                <template #icon><n-icon><shield-checkmark-outline /></n-icon></template>
+                              </n-button>
                             </div>
                           </div>
                         </div>
@@ -230,16 +249,16 @@
 
                     <div class="switch-stack">
                       <n-checkbox v-model:checked="translationOptions.embedSubtitles">
-                        <n-space align="center" :size="4">
+                        <span class="checkbox-label-content">
                           <n-icon><layers-outline /></n-icon>
                           {{ t('app.embedTranslatedSubtitles') }}
-                        </n-space>
+                        </span>
                       </n-checkbox>
                       <n-checkbox v-model:checked="translationOptions.useMkvmerge" :disabled="!translationOptions.embedSubtitles">
-                        <n-space align="center" :size="4">
+                        <span class="checkbox-label-content">
                           <n-icon><layers-outline /></n-icon>
                           {{ t('app.routeThroughMkvmerge') }}
-                        </n-space>
+                        </span>
                       </n-checkbox>
                     </div>
 
@@ -277,30 +296,35 @@
 
           <SettingsModal v-model:show="showSettings" ref="settingsRef" />
 
-          <n-modal
-            v-model:show="showLanguageSetup"
-            preset="card"
-            class="settings-modal language-setup-modal"
-            :style="{ width: 'min(520px, calc(100vw - 28px))' }"
-            :title="t('setup.title')"
-            :bordered="false"
-            :closable="false"
-            :mask-closable="false"
-          >
-            <n-space vertical size="large">
-              <div>
-                <p class="eyebrow">{{ t('setup.eyebrow') }}</p>
-                <p class="setup-description">{{ t('setup.description') }}</p>
-              </div>
-              <n-select v-model:value="setupLanguage" :options="interfaceLanguageSelectOptions" />
-              <n-button type="primary" block class="primary-command" @click="completeLanguageSetup">
-                <template #icon>
+          <div v-if="showLanguageSetup" class="language-setup-overlay" role="dialog" aria-modal="true">
+            <section class="language-setup-panel" :aria-label="t('setup.title')">
+              <header class="language-setup-header">
+                <h2>{{ t('setup.title') }}</h2>
+              </header>
+              <div class="language-setup-stack">
+                <div>
+                  <p class="eyebrow">{{ t('setup.eyebrow') }}</p>
+                  <p class="setup-description">{{ t('setup.description') }}</p>
+                </div>
+                <div class="language-choice-grid">
+                  <button
+                    v-for="option in interfaceLanguageSelectOptions"
+                    :key="option.value"
+                    type="button"
+                    class="language-choice"
+                    :class="{ active: option.value === setupLanguage }"
+                    @click="setupLanguage = option.value"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+                <button type="button" class="setup-continue-command" @click="completeLanguageSetup">
                   <n-icon><language-outline /></n-icon>
-                </template>
-                {{ t('setup.continue') }}
-              </n-button>
-            </n-space>
-          </n-modal>
+                  {{ t('setup.continue') }}
+                </button>
+              </div>
+            </section>
+          </div>
         </n-dialog-provider>
       </n-notification-provider>
     </n-message-provider>
@@ -315,12 +339,8 @@ import {
   NMessageProvider,
   NNotificationProvider,
   NDialogProvider,
-  NModal,
   NButton,
   NIcon,
-  NSpace,
-  NTooltip,
-  NDropdown,
   NScrollbar,
   NFormItem,
   NSelect,
@@ -376,6 +396,7 @@ const { isDark, theme, themeOverrides, toggleTheme } = useAppTheme()
 
 const showSettings = ref(false)
 const showLanguageSetup = ref(false)
+const showLanguageMenu = ref(false)
 const setupLanguage = ref<InterfaceLocale>(defaultInterfaceLanguage)
 const settingsRef = ref<SettingsModalExpose | null>(null)
 
@@ -407,13 +428,6 @@ const interfaceLanguageSelectOptions = computed(() => {
   return interfaceLanguageOptions.map(option => ({
     label: t(option.labelKey),
     value: option.value
-  }))
-})
-
-const interfaceDropdownOptions = computed(() => {
-  return interfaceLanguageSelectOptions.value.map(option => ({
-    label: option.label,
-    key: option.value
   }))
 })
 
@@ -480,12 +494,19 @@ const clearFiles = () => {
   resetProgress()
 }
 
+const setDragging = (value: boolean) => {
+  if (isDragging.value !== value) {
+    isDragging.value = value
+  }
+}
+
 const changeInterfaceLanguage = (language: string | number) => {
   if (typeof language !== 'string') return
   updateSettings({
     interfaceLanguage: language as InterfaceLocale,
     hasSelectedInterfaceLanguage: true
   })
+  showLanguageMenu.value = false
 }
 
 const completeLanguageSetup = () => {
@@ -525,15 +546,15 @@ onMounted(async () => {
   const unlistenDragDrop = await getCurrentWindow().onDragDropEvent(async (event) => {
     const payload = event.payload as DragDropEvent
     if (payload.type === 'enter') {
-      isDragging.value = true
+      setDragging(true)
       return
     }
     if (payload.type === 'leave') {
-      isDragging.value = false
+      setDragging(false)
       return
     }
     if (payload.type === 'drop') {
-      isDragging.value = false
+      setDragging(false)
       const paths = payload.paths || []
       if (paths.length > 0) {
         loadingFiles.value = true
@@ -569,22 +590,22 @@ onUnmounted(() => {
 
 <style>
 :root {
-  --wired-black: #030303;
-  --wired-void: #070606;
-  --wired-panel: #121013;
-  --wired-panel-2: #1c151d;
-  --wired-panel-3: #241a23;
-  --wired-paper: #c8bd98;
-  --wired-paper-bright: #e0d4a8;
-  --wired-muted: #8d8064;
-  --wired-faint: #5d5342;
-  --wired-pink: #c99a86;
-  --wired-red: #b54438;
-  --wired-red-dark: #4d1716;
-  --wired-border: rgba(200, 189, 152, 0.22);
-  --wired-border-strong: rgba(224, 212, 168, 0.42);
-  --wired-glow: rgba(201, 154, 134, 0.18);
-  --wired-shadow: 0 24px 80px rgba(0, 0, 0, 0.64);
+  --wired-black: #020205;
+  --wired-void: #050510;
+  --wired-panel: #0a0a18;
+  --wired-panel-2: #111128;
+  --wired-panel-3: #181838;
+  --wired-paper: #7ce8a0;
+  --wired-paper-bright: #8fffb8;
+  --wired-muted: #4a7a5c;
+  --wired-faint: #2a4a38;
+  --wired-pink: #8088cc;
+  --wired-red: #cc5588;
+  --wired-red-dark: #2a1040;
+  --wired-border: rgba(124, 232, 160, 0.16);
+  --wired-border-strong: rgba(143, 255, 184, 0.32);
+  --wired-glow: rgba(124, 232, 160, 0.12);
+  --wired-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   --font-wired: ui-monospace, "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, monospace;
   --font-body: "Avenir Next", "Segoe UI", sans-serif;
 }
@@ -625,33 +646,18 @@ textarea {
   flex-direction: column;
   height: 100vh;
   color: var(--wired-paper);
-  background:
-    radial-gradient(circle at 14% 18%, rgba(181, 68, 56, 0.18), transparent 26rem),
-    radial-gradient(circle at 88% 8%, rgba(201, 154, 134, 0.1), transparent 22rem),
-    linear-gradient(135deg, var(--wired-black), var(--wired-void) 46%, #0d080b);
+  background: linear-gradient(180deg, #02030c 0%, #040615 40%, #050510 70%, #030418 100%);
   isolation: isolate;
 }
 
-.app-shell::before,
-.app-shell::after {
+.app-shell::before {
   position: absolute;
   inset: 0;
   z-index: -1;
   pointer-events: none;
   content: "";
-}
-
-.app-shell::before {
-  opacity: 0.32;
-  background-image:
-    radial-gradient(circle, rgba(201, 154, 134, 0.18) 1px, transparent 1px);
-  background-size: 4px 4px;
-}
-
-.app-shell::after {
   opacity: 0.18;
-  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(224, 212, 168, 0.09) 3px 4px);
-  mix-blend-mode: screen;
+  background: radial-gradient(ellipse 80% 100% at 10% 0%, rgba(124, 232, 160, 0.04), transparent 55%);
 }
 
 .wired-header {
@@ -660,7 +666,7 @@ textarea {
   gap: 18px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--wired-border);
-  background: rgba(3, 3, 3, 0.74);
+  background: rgba(2, 2, 5, 0.78);
   -webkit-app-region: drag;
 }
 
@@ -668,21 +674,37 @@ textarea {
   -webkit-app-region: no-drag;
 }
 
-.language-setup-modal {
+.setup-description {
+  margin-top: 8px;
   color: var(--wired-paper);
-  font-family: var(--font-body);
+  line-height: 1.6;
 }
 
-.language-setup-modal :deep(.n-card) {
+.language-setup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  background: rgba(2, 2, 5, 0.68);
+}
+
+.language-setup-panel {
+  width: min(520px, calc(100vw - 28px));
+  color: var(--wired-paper);
   border: 1px solid var(--wired-border-strong);
-  border-radius: 0;
-  background:
-    linear-gradient(180deg, rgba(28, 21, 29, 0.98), rgba(6, 5, 6, 0.98)),
-    radial-gradient(circle at 12% 0%, rgba(181, 68, 56, 0.18), transparent 20rem);
+  background: linear-gradient(180deg, rgba(10, 10, 28, 0.98), rgba(3, 3, 14, 0.98));
   box-shadow: var(--wired-shadow);
 }
 
-.language-setup-modal :deep(.n-card-header__main) {
+.language-setup-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--wired-border);
+  background: rgba(2, 2, 5, 0.40);
+}
+
+.language-setup-header h2 {
   color: var(--wired-paper-bright);
   font-family: var(--font-wired);
   font-size: 14px;
@@ -690,14 +712,41 @@ textarea {
   text-transform: uppercase;
 }
 
-.language-setup-modal :deep(.n-card__content) {
+.language-setup-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
   padding: 22px;
 }
 
-.setup-description {
-  margin-top: 8px;
-  color: var(--wired-paper);
-  line-height: 1.6;
+.language-choice-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.language-choice {
+  padding: 12px 14px;
+}
+
+.setup-continue-command {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  color: var(--wired-black);
+  font-family: var(--font-wired);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--wired-paper);
+  background: var(--wired-paper);
+  box-shadow: 3px 3px 0 var(--wired-red-dark);
+  cursor: pointer;
+}
+
+.setup-continue-command:hover {
+  background: var(--wired-paper-bright);
 }
 
 .identity-block,
@@ -773,23 +822,65 @@ h1 {
   white-space: nowrap;
   text-overflow: ellipsis;
   border: 1px solid var(--wired-border);
-  background: rgba(18, 16, 19, 0.82);
+  background: rgba(5, 5, 16, 0.82);
 }
 
 .status-pill.online {
   color: var(--wired-paper-bright);
-  border-color: rgba(200, 189, 152, 0.5);
+  border-color: rgba(124, 232, 160, 0.44);
 }
 
 .status-pill.offline {
   color: var(--wired-pink);
-  border-color: rgba(181, 68, 56, 0.56);
+  border-color: rgba(204, 85, 136, 0.48);
 }
 
 .header-actions {
   display: flex;
   gap: 6px;
   margin-left: auto;
+}
+
+.language-menu-wrap {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.language-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid var(--wired-border);
+  background: var(--wired-panel);
+  box-shadow: var(--wired-shadow);
+}
+
+.language-menu-item,
+.language-choice {
+  color: var(--wired-paper);
+  font-family: var(--font-wired);
+  font-size: 12px;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+}
+
+.language-menu-item {
+  padding: 9px 10px;
+}
+
+.language-menu-item:hover,
+.language-menu-item.active,
+.language-choice:hover,
+.language-choice.active {
+  color: var(--wired-paper-bright);
+  border-color: var(--wired-border-strong);
+  background: rgba(124, 232, 160, 0.07);
 }
 
 .wired-main {
@@ -809,17 +900,13 @@ h1 {
   padding: 48px 24px 52px;
   text-align: center;
   border: 1px dashed var(--wired-border-strong);
-  background: repeating-linear-gradient(
-    135deg,
-    rgba(200, 189, 152, 0.02) 0 1px,
-    transparent 1px 12px
-  );
-  transition: border-color 160ms ease, box-shadow 160ms ease;
+  background: rgba(5, 5, 16, 0.34);
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
 
 .hero-port.drop-zone-active {
   border-color: var(--wired-paper-bright);
-  box-shadow: 0 0 0 1px rgba(224, 212, 168, 0.2), inset 0 0 60px rgba(201, 154, 134, 0.06);
+  background: rgba(10, 10, 28, 0.68);
 }
 
 .hero-copy {
@@ -880,9 +967,7 @@ h1 {
 
 .wired-panel {
   border: 1px solid var(--wired-border);
-  background:
-    linear-gradient(180deg, rgba(28, 21, 29, 0.9), rgba(12, 9, 12, 0.94)),
-    radial-gradient(circle at 20% 0%, rgba(201, 154, 134, 0.11), transparent 18rem);
+  background: linear-gradient(180deg, rgba(10, 10, 28, 0.9), rgba(6, 6, 18, 0.94));
   box-shadow: var(--wired-shadow);
 }
 
@@ -913,8 +998,8 @@ h1 {
 
 .queue-stats div {
   padding: 12px;
-  border: 1px solid rgba(200, 189, 152, 0.14);
-  background: rgba(3, 3, 3, 0.34);
+  border: 1px solid rgba(124, 232, 160, 0.12);
+  background: rgba(2, 2, 5, 0.38);
 }
 
 .queue-stats strong {
@@ -941,11 +1026,11 @@ h1 {
 }
 
 .file-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 140px;
   padding: 14px;
-  border: 1px solid rgba(200, 189, 152, 0.14);
-  background:
-    linear-gradient(90deg, rgba(3, 3, 3, 0.46), rgba(28, 21, 29, 0.36)),
-    repeating-linear-gradient(135deg, rgba(200, 189, 152, 0.035) 0 1px, transparent 1px 8px);
+  border: 1px solid rgba(124, 232, 160, 0.12);
+  background: rgba(2, 2, 5, 0.42);
 }
 
 .file-header {
@@ -1009,8 +1094,8 @@ h1 {
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  border: 1px solid rgba(200, 189, 152, 0.1);
-  background: rgba(3, 3, 3, 0.34);
+  border: 1px solid rgba(124, 232, 160, 0.09);
+  background: rgba(2, 2, 5, 0.38);
 }
 
 .track-meta {
@@ -1031,7 +1116,7 @@ h1 {
 
 .track-flag {
   color: var(--wired-paper-bright);
-  background: rgba(200, 189, 152, 0.13);
+  background: rgba(124, 232, 160, 0.12);
 }
 
 .track-flag.warn {
@@ -1066,8 +1151,8 @@ h1 {
   color: var(--wired-muted);
   font-family: var(--font-wired);
   font-size: 10px;
-  border: 1px solid rgba(201, 154, 134, 0.14);
-  background: rgba(181, 68, 56, 0.08);
+  border: 1px solid rgba(128, 136, 204, 0.14);
+  background: rgba(128, 136, 204, 0.06);
 }
 
 .protocol-panel {
@@ -1080,13 +1165,11 @@ h1 {
   height: 12px;
   border: 1px solid var(--wired-red);
   background: var(--wired-red-dark);
-  box-shadow: 0 0 18px rgba(181, 68, 56, 0.36);
 }
 
 .status-dot.online {
   border-color: var(--wired-paper-bright);
   background: var(--wired-paper);
-  box-shadow: 0 0 20px rgba(224, 212, 168, 0.26);
 }
 
 .protocol-form {
@@ -1101,8 +1184,14 @@ h1 {
   gap: 10px;
   margin: 4px 0 12px;
   padding: 12px;
-  border: 1px solid rgba(200, 189, 152, 0.12);
-  background: rgba(3, 3, 3, 0.32);
+  border: 1px solid rgba(124, 232, 160, 0.10);
+  background: rgba(2, 2, 5, 0.36);
+}
+
+.checkbox-label-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .execute-block {
@@ -1119,8 +1208,8 @@ h1 {
 .progress-console {
   margin-top: 16px;
   padding: 12px;
-  border: 1px solid rgba(200, 189, 152, 0.16);
-  background: #050505;
+  border: 1px solid rgba(124, 232, 160, 0.14);
+  background: #030312;
 }
 
 .progress-head {
@@ -1148,7 +1237,7 @@ h1 {
   font-weight: 900;
   background: var(--wired-paper) !important;
   border-color: var(--wired-paper) !important;
-  box-shadow: 6px 6px 0 var(--wired-red-dark);
+  box-shadow: 3px 3px 0 var(--wired-red-dark);
 }
 
 :deep(.n-button--primary-type:hover) {
@@ -1160,7 +1249,7 @@ h1 {
 .icon-button {
   color: var(--wired-paper) !important;
   border: 1px solid var(--wired-border) !important;
-  background: rgba(3, 3, 3, 0.3) !important;
+  background: rgba(2, 2, 5, 0.34) !important;
 }
 
 :deep(.n-base-selection),
@@ -1168,7 +1257,7 @@ h1 {
 :deep(.n-input-number),
 :deep(.n-input-number .n-input) {
   border-radius: 0 !important;
-  background: rgba(3, 3, 3, 0.42) !important;
+  background: rgba(2, 2, 5, 0.46) !important;
 }
 
 :deep(.n-base-selection .n-base-selection-label),
@@ -1201,7 +1290,7 @@ h1 {
 }
 
 :deep(.n-progress-graph-line-fill) {
-  background: linear-gradient(90deg, var(--wired-red), var(--wired-paper)) !important;
+  background: linear-gradient(90deg, var(--wired-pink), var(--wired-paper-bright)) !important;
 }
 
 .wired-divider :deep(.n-divider__title) {

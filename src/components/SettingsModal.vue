@@ -6,23 +6,25 @@
     :style="{ width: 'min(860px, calc(100vw - 28px))' }"
     :title="t('settings.title')"
     :bordered="false"
+    :auto-focus="false"
+    :transition-name="''"
     size="huge"
     :segmented="{ content: true, footer: 'soft' }"
   >
-    <n-tabs type="line" animated class="settings-tabs">
+    <n-tabs type="line" class="settings-tabs">
       <n-tab-pane name="interface" :tab="t('settings.interfaceTab')">
-        <n-space vertical size="large">
+        <div class="settings-stack">
           <n-form-item :label="t('settings.interfaceLanguage')" label-placement="left">
             <n-select
               v-model:value="settings.interfaceLanguage"
               :options="interfaceLanguageSelectOptions"
             />
           </n-form-item>
-        </n-space>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane name="api" :tab="t('settings.apiTab')">
-        <n-space vertical size="large">
+        <div class="settings-stack">
           <n-form-item :label="t('settings.provider')" label-placement="left">
             <n-select
               v-model:value="settings.provider"
@@ -75,11 +77,11 @@
 
           <n-collapse>
             <n-collapse-item :title="t('settings.providerPresets')" name="presets">
-              <n-space vertical>
+              <div class="settings-stack compact">
                 <n-text depth="3" style="font-size: 12px;">
                   {{ t('settings.providerPresetsDescription') }}
                 </n-text>
-                <n-space>
+                <div class="provider-preset-grid">
                   <n-button size="small" @click="setPreset('openai')">OpenAI</n-button>
                   <n-button size="small" @click="setPreset('gemini')">Gemini</n-button>
                   <n-button size="small" @click="setPreset('ollama')">Ollama</n-button>
@@ -87,15 +89,15 @@
                   <n-button size="small" @click="setPreset('llamacpp')">llama.cpp</n-button>
                   <n-button size="small" @click="setPreset('openrouter')">OpenRouter</n-button>
                   <n-button size="small" @click="setPreset('nvidia')">NVIDIA NIM</n-button>
-                </n-space>
-              </n-space>
+                </div>
+              </div>
             </n-collapse-item>
           </n-collapse>
-        </n-space>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane name="translation" :tab="t('settings.translationTab')">
-        <n-space vertical size="large">
+        <div class="settings-stack">
           <n-form-item :label="t('settings.sourceLanguage')" label-placement="left">
             <n-select
               v-model:value="settings.sourceLanguage"
@@ -130,11 +132,11 @@
               />
             </n-collapse-item>
           </n-collapse>
-        </n-space>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane name="output" :tab="t('settings.outputTab')">
-        <n-space vertical size="large">
+        <div class="settings-stack">
           <n-form-item :label="t('settings.outputDirectory')" label-placement="left">
             <n-input-group>
               <n-input
@@ -175,21 +177,21 @@
           <n-divider />
 
           <n-form-item :label="t('settings.backupSettings')" label-placement="top">
-            <n-space vertical>
+            <div class="settings-stack compact">
               <n-checkbox v-model:checked="settings.autoBackup">
                 {{ t('settings.autoBackup') }}
               </n-checkbox>
               <n-checkbox v-model:checked="settings.keepOriginalTrack">
                 {{ t('settings.keepOriginalTrack') }}
               </n-checkbox>
-            </n-space>
+            </div>
           </n-form-item>
-        </n-space>
+        </div>
       </n-tab-pane>
     </n-tabs>
 
     <template #footer>
-      <n-space justify="end">
+      <div class="settings-footer-actions">
         <n-button @click="resetSettings">{{ t('settings.reset') }}</n-button>
         <n-button type="primary" @click="saveSettings">
           <template #icon>
@@ -197,7 +199,7 @@
           </template>
           {{ t('settings.saveSettings') }}
         </n-button>
-      </n-space>
+      </div>
     </template>
   </n-modal>
 </template>
@@ -209,7 +211,6 @@ import {
   NModal,
   NTabs,
   NTabPane,
-  NSpace,
   NFormItem,
   NInput,
   NInputGroup,
@@ -518,24 +519,20 @@ defineExpose({ settings, getSystemPrompt })
 }
 
 .settings-modal :deep(.n-card) {
-  color: var(--wired-paper, #c8bd98);
-  border: 1px solid var(--wired-border-strong, rgba(224, 212, 168, 0.42));
+  color: var(--wired-paper, #7ce8a0);
+  border: 1px solid var(--wired-border-strong, rgba(143, 255, 184, 0.32));
   border-radius: 0;
-  background:
-    linear-gradient(180deg, rgba(28, 21, 29, 0.98), rgba(6, 5, 6, 0.98)),
-    radial-gradient(circle at 12% 0%, rgba(181, 68, 56, 0.18), transparent 20rem);
-  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.72);
+  background: linear-gradient(180deg, rgba(10, 10, 28, 0.98), rgba(3, 3, 14, 0.98));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
 .settings-modal :deep(.n-card-header) {
-  border-bottom: 1px solid var(--wired-border, rgba(200, 189, 152, 0.22));
-  background:
-    repeating-linear-gradient(90deg, rgba(200, 189, 152, 0.04) 0 1px, transparent 1px 12px),
-    rgba(3, 3, 3, 0.36);
+  border-bottom: 1px solid var(--wired-border, rgba(124, 232, 160, 0.16));
+  background: rgba(2, 2, 5, 0.40);
 }
 
 .settings-modal :deep(.n-card-header__main) {
-  color: var(--wired-paper-bright, #e0d4a8);
+  color: var(--wired-paper-bright, #8fffb8);
   font-family: var(--font-wired, ui-monospace, monospace);
   font-size: 14px;
   letter-spacing: 0.14em;
@@ -547,8 +544,30 @@ defineExpose({ settings, getSystemPrompt })
 }
 
 .settings-modal :deep(.n-card__footer) {
-  border-top: 1px solid var(--wired-border, rgba(200, 189, 152, 0.22));
-  background: rgba(3, 3, 3, 0.26);
+  border-top: 1px solid var(--wired-border, rgba(124, 232, 160, 0.16));
+  background: rgba(2, 2, 5, 0.30);
+}
+
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.settings-stack.compact {
+  gap: 12px;
+}
+
+.provider-preset-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .settings-tabs :deep(.n-tabs-tab__label),
@@ -562,11 +581,11 @@ defineExpose({ settings, getSystemPrompt })
 }
 
 .settings-tabs :deep(.n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label) {
-  color: var(--wired-paper-bright, #e0d4a8);
+  color: var(--wired-paper-bright, #8fffb8);
 }
 
 .settings-tabs :deep(.n-tabs-bar) {
-  background: var(--wired-red, #b54438);
+  background: var(--wired-pink, #8088cc);
 }
 
 .settings-modal :deep(.n-button) {
@@ -578,9 +597,9 @@ defineExpose({ settings, getSystemPrompt })
 .settings-modal :deep(.n-button--primary-type) {
   color: var(--wired-black, #030303) !important;
   font-weight: 900;
-  background: var(--wired-paper, #c8bd98) !important;
-  border-color: var(--wired-paper, #c8bd98) !important;
-  box-shadow: 5px 5px 0 var(--wired-red-dark, #4d1716);
+  background: var(--wired-paper, #7ce8a0) !important;
+  border-color: var(--wired-paper, #7ce8a0) !important;
+  box-shadow: 3px 3px 0 var(--wired-red-dark, #2a1040);
 }
 
 .settings-modal :deep(.n-base-selection),
@@ -588,30 +607,30 @@ defineExpose({ settings, getSystemPrompt })
 .settings-modal :deep(.n-input-number),
 .settings-modal :deep(.n-input-number .n-input) {
   border-radius: 0 !important;
-  background: rgba(3, 3, 3, 0.42) !important;
+  background: rgba(2, 2, 5, 0.46) !important;
 }
 
 .settings-modal :deep(.n-base-selection .n-base-selection-label),
 .settings-modal :deep(.n-input-wrapper),
 .settings-modal :deep(.n-input__textarea-el),
 .settings-modal :deep(.n-input__input-el) {
-  color: var(--wired-paper, #c8bd98) !important;
+  color: var(--wired-paper, #7ce8a0) !important;
   font-family: var(--font-wired, ui-monospace, monospace) !important;
 }
 
 .settings-modal :deep(.n-collapse),
 .settings-modal :deep(.n-collapse-item) {
-  border-color: var(--wired-border, rgba(200, 189, 152, 0.22));
+  border-color: var(--wired-border, rgba(124, 232, 160, 0.16));
 }
 
 .settings-modal :deep(.n-checkbox__label),
 .settings-modal :deep(.n-text) {
-  color: var(--wired-paper, #c8bd98) !important;
+  color: var(--wired-paper, #7ce8a0) !important;
   font-family: var(--font-wired, ui-monospace, monospace);
 }
 
 .settings-modal :deep(.n-divider) {
-  --n-color: var(--wired-border, rgba(200, 189, 152, 0.22));
+  --n-color: var(--wired-border, rgba(124, 232, 160, 0.16));
 }
 
 @media (max-width: 720px) {
