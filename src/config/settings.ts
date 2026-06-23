@@ -46,6 +46,7 @@ export const sharedLanguageOptions = [
   { label: 'Spanish', value: 'es' },
   { label: 'French', value: 'fr' },
   { label: 'German', value: 'de' },
+  { label: 'Persian', value: 'fa' },
   { label: 'Portuguese', value: 'pt' },
   { label: 'Russian', value: 'ru' },
   { label: 'Italian', value: 'it' },

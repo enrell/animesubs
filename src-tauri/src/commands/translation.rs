@@ -507,6 +507,7 @@ fn to_ffmpeg_lang_code(value: Option<&str>) -> String {
         "pt" | "pt-br" | "por" => Some("por"),
         "ru" | "rus" => Some("rus"),
         "it" | "ita" => Some("ita"),
+        "fa" | "per" => Some("per"),
         "ar" | "ara" => Some("ara"),
         _ => None,
     };
