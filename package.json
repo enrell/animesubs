@@ -16,7 +16,8 @@
     "@tauri-apps/plugin-opener": "^2.5.4",
     "@vicons/ionicons5": "^0.13.0",
     "naive-ui": "^2.43.2",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "vue-i18n": "^11.4.6"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

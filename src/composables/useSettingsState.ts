@@ -2,10 +2,12 @@ import { computed, ref, watch, type Ref } from 'vue'
 import { checkFfmpeg, loadApiKey } from '../api/animesubs'
 import {
   defaultSettings,
+  normalizeSettings,
   SETTINGS_STORAGE_KEY,
   settingsForStorage,
   type Settings
 } from '../config/settings'
+import { setInterfaceLocale } from '../i18n'
 import type { OperationResult } from '../types/domain'
 
 export interface SettingsModalExpose {
@@ -24,8 +26,9 @@ export const useSettingsState = (
     try {
       const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
       const loaded = saved
-        ? { ...defaultSettings, ...JSON.parse(saved), apiKey: '' }
+        ? normalizeSettings({ ...JSON.parse(saved), apiKey: '' })
         : { ...defaultSettings }
+      setInterfaceLocale(loaded.interfaceLanguage)
       const apiKey = await loadApiKey(loaded.provider)
       cachedSettings.value = {
         ...loaded,
@@ -57,6 +60,7 @@ export const useSettingsState = (
     }
 
     cachedSettings.value = nextSettings
+    setInterfaceLocale(nextSettings.interfaceLanguage)
 
     if (settingsRef.value?.settings) {
       Object.assign(settingsRef.value.settings, patch)

@@ -7,15 +7,17 @@
             <header class="wired-header">
               <div class="identity-block">
                 <div>
-                  <p class="eyebrow">animesubs://wired</p>
-                  <h1>subtitle protocol</h1>
+                  <p class="eyebrow">{{ t('app.eyebrow') }}</p>
+                  <h1>{{ t('app.title') }}</h1>
                 </div>
               </div>
 
-              <div class="status-strip" aria-label="Runtime status">
-                <span class="status-pill">provider {{ providerLabel }}</span>
-                <span class="status-pill truncate">model {{ modelLabel }}</span>
-                <span class="status-pill" :class="ffmpegStatusClass">ffmpeg {{ ffmpegStatusLabel }}</span>
+              <div class="status-strip" :aria-label="t('app.runtimeStatus')">
+                <span class="status-pill">{{ t('app.provider', { provider: providerLabel }) }}</span>
+                <span class="status-pill truncate">{{ t('app.model', { model: modelLabel }) }}</span>
+                <span class="status-pill" :class="ffmpegStatusClass">
+                  {{ t('app.ffmpeg', { status: ffmpegStatusLabel }) }}
+                </span>
               </div>
 
               <div class="header-actions">
@@ -30,8 +32,19 @@
                       </template>
                     </n-button>
                   </template>
-                  {{ isDark ? 'Light mode' : 'Dark mode' }}
+                  {{ isDark ? t('app.lightMode') : t('app.darkMode') }}
                 </n-tooltip>
+                <n-dropdown
+                  trigger="click"
+                  :options="interfaceDropdownOptions"
+                  @select="changeInterfaceLanguage"
+                >
+                  <n-button quaternary circle class="icon-button" :title="t('app.language')">
+                    <template #icon>
+                      <n-icon size="18"><language-outline /></n-icon>
+                    </template>
+                  </n-button>
+                </n-dropdown>
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-button quaternary circle class="icon-button" @click="showSettings = true">
@@ -40,7 +53,7 @@
                       </template>
                     </n-button>
                   </template>
-                  Settings
+                  {{ t('app.settings') }}
                 </n-tooltip>
               </div>
             </header>
@@ -54,19 +67,19 @@
                 @drop.prevent="handleDrop"
               >
                 <div class="hero-copy">
-                  <p class="terminal-line">connect_media_packet</p>
-                  <h2>Drop video files into the Wired.</h2>
+                  <p class="terminal-line">{{ t('app.terminalLine') }}</p>
+                  <h2>{{ t('app.heroTitle') }}</h2>
                   <p>
-                    Extract, translate, backup, and embed subtitle tracks without leaving the node.
+                    {{ t('app.heroDescription') }}
                   </p>
                   <div class="hero-actions">
                     <n-button type="primary" size="large" class="primary-command" @click="selectFiles" :loading="loadingFiles">
                       <template #icon><n-icon><document-outline /></n-icon></template>
-                      SELECT FILES
+                      {{ t('app.selectFiles') }}
                     </n-button>
                     <n-button size="large" class="secondary-command" @click="selectFolder" :loading="loadingFiles">
                       <template #icon><n-icon><folder-open-outline /></n-icon></template>
-                      SCAN FOLDER
+                      {{ t('app.scanFolder') }}
                     </n-button>
                   </div>
                 </div>
@@ -76,30 +89,30 @@
               <n-alert
                 v-if="ffmpegStatus && !ffmpegStatus.success"
                 type="warning"
-                title="FFmpeg signal missing"
+                :title="t('app.ffmpegMissingTitle')"
                 closable
                 class="wired-alert"
               >
-                FFmpeg is required for subtitle extraction. Install FFmpeg or configure its path in Settings.
+                {{ t('app.ffmpegMissingDescription') }}
               </n-alert>
 
               <section v-if="selectedFiles.length > 0" class="workspace-grid">
                 <div class="queue-panel wired-panel">
                   <div class="panel-heading">
                     <div>
-                      <p class="eyebrow">media queue</p>
-                      <h3>{{ selectedFiles.length }} packets attached</h3>
+                      <p class="eyebrow">{{ t('app.mediaQueue') }}</p>
+                      <h3>{{ t('app.packetsAttached', { count: selectedFiles.length }) }}</h3>
                     </div>
                     <n-button text type="error" class="clear-command" @click="clearFiles">
                       <template #icon><n-icon><trash-outline /></n-icon></template>
-                      CLEAR
+                      {{ t('app.clear') }}
                     </n-button>
                   </div>
 
                   <div class="queue-stats">
-                    <div><strong>{{ readyFileCount }}</strong><span>ready</span></div>
-                    <div><strong>{{ totalSubtitleTracks }}</strong><span>tracks</span></div>
-                    <div><strong>{{ totalBackups }}</strong><span>backups</span></div>
+                    <div><strong>{{ readyFileCount }}</strong><span>{{ t('app.ready') }}</span></div>
+                    <div><strong>{{ totalSubtitleTracks }}</strong><span>{{ t('app.tracks') }}</span></div>
+                    <div><strong>{{ totalBackups }}</strong><span>{{ t('app.backups') }}</span></div>
                   </div>
 
                   <n-scrollbar class="queue-scroll">
@@ -116,7 +129,7 @@
                           <div class="file-actions">
                             <n-spin v-if="file.loading" size="small" />
                             <n-tag v-if="file.videoInfo" size="small" :bordered="false" class="wired-tag">
-                              {{ file.videoInfo.subtitle_tracks.length }} subs
+                              {{ t('app.subs', { count: file.videoInfo.subtitle_tracks.length }) }}
                             </n-tag>
                             <n-button text type="error" @click="removeFile(index)">
                               <template #icon><n-icon><close-outline /></n-icon></template>
@@ -128,10 +141,10 @@
                           <div v-for="track in file.videoInfo.subtitle_tracks" :key="track.index" class="subtitle-track">
                             <div class="track-meta">
                               <span class="track-lang">{{ track.language || 'und' }}</span>
-                              <span>{{ track.title || `Track ${track.index}` }}</span>
+                              <span>{{ track.title || t('track.title', { index: track.index }) }}</span>
                               <span class="track-codec">{{ track.codec }}</span>
-                              <span v-if="track.default" class="track-flag">default</span>
-                              <span v-if="track.forced" class="track-flag warn">forced</span>
+                              <span v-if="track.default" class="track-flag">{{ t('app.default') }}</span>
+                              <span v-if="track.forced" class="track-flag warn">{{ t('app.forced') }}</span>
                             </div>
                             <div class="track-actions">
                               <n-tooltip trigger="hover">
@@ -140,7 +153,7 @@
                                     <template #icon><n-icon><download-outline /></n-icon></template>
                                   </n-button>
                                 </template>
-                                Extract subtitle
+                                {{ t('app.extractSubtitle') }}
                               </n-tooltip>
                               <n-tooltip trigger="hover">
                                 <template #trigger>
@@ -148,7 +161,7 @@
                                     <template #icon><n-icon><shield-checkmark-outline /></n-icon></template>
                                   </n-button>
                                 </template>
-                                Backup subtitle
+                                {{ t('app.backupSubtitle') }}
                               </n-tooltip>
                             </div>
                           </div>
@@ -156,7 +169,7 @@
 
                         <div v-else-if="file.videoInfo && file.videoInfo.subtitle_tracks.length === 0" class="no-subs-warning">
                           <n-icon size="16"><information-circle-outline /></n-icon>
-                          <span>No subtitle tracks found</span>
+                          <span>{{ t('app.noSubtitleTracks') }}</span>
                         </div>
 
                         <div v-if="file.error" class="file-error">
@@ -164,9 +177,15 @@
                         </div>
 
                         <div v-if="file.backups.length > 0" class="backups-section">
-                          <n-divider class="wired-divider">Backups</n-divider>
+                          <n-divider class="wired-divider">{{ t('app.backupDivider') }}</n-divider>
                           <div v-for="backup in file.backups" :key="backup.backup_path" class="backup-item">
-                            <span>track {{ backup.track_index }} / {{ backup.format }} / {{ backup.created_at }}</span>
+                            <span>
+                              {{ t('app.backupMeta', {
+                                track: backup.track_index,
+                                format: backup.format,
+                                date: backup.created_at
+                              }) }}
+                            </span>
                             <div class="backup-actions">
                               <n-popconfirm @positive-click="restoreBackup(file, backup)">
                                 <template #trigger>
@@ -174,7 +193,7 @@
                                     <template #icon><n-icon><arrow-undo-outline /></n-icon></template>
                                   </n-button>
                                 </template>
-                                Restore this backup? This will replace the current subtitle track.
+                                {{ t('app.restoreBackupConfirm') }}
                               </n-popconfirm>
                               <n-popconfirm @positive-click="deleteBackup(file, backup)">
                                 <template #trigger>
@@ -182,7 +201,7 @@
                                     <template #icon><n-icon><trash-outline /></n-icon></template>
                                   </n-button>
                                 </template>
-                                Delete this backup?
+                                {{ t('app.deleteBackupConfirm') }}
                               </n-popconfirm>
                             </div>
                           </div>
@@ -195,39 +214,39 @@
                 <aside class="protocol-panel wired-panel">
                   <div class="panel-heading">
                     <div>
-                      <p class="eyebrow">translation protocol</p>
+                      <p class="eyebrow">{{ t('app.translationProtocol') }}</p>
                       <h3>{{ targetLanguageLabel }}</h3>
                     </div>
                     <span class="status-dot" :class="{ online: canStartTranslation }"></span>
                   </div>
 
                   <div class="protocol-form">
-                    <n-form-item label="Target Language">
-                      <n-input v-model:value="targetLanguageModel" placeholder="e.g. pt, en, es, ja" />
+                    <n-form-item :label="t('app.targetLanguage')">
+                      <n-input v-model:value="targetLanguageModel" :placeholder="t('app.targetLanguagePlaceholder')" />
                     </n-form-item>
-                    <n-form-item label="Subtitle Track">
-                      <n-select v-model:value="translationOptions.subtitleTrack" :options="subtitleTrackOptions" placeholder="Auto-detect first available" />
+                    <n-form-item :label="t('app.subtitleTrack')">
+                      <n-select v-model:value="translationOptions.subtitleTrack" :options="subtitleTrackOptions" :placeholder="t('app.autoDetectFirstAvailable')" />
                     </n-form-item>
 
                     <div class="switch-stack">
                       <n-checkbox v-model:checked="translationOptions.embedSubtitles">
                         <n-space align="center" :size="4">
                           <n-icon><layers-outline /></n-icon>
-                          Embed translated subtitles
+                          {{ t('app.embedTranslatedSubtitles') }}
                         </n-space>
                       </n-checkbox>
                       <n-checkbox v-model:checked="translationOptions.useMkvmerge" :disabled="!translationOptions.embedSubtitles">
                         <n-space align="center" :size="4">
                           <n-icon><layers-outline /></n-icon>
-                          Route through mkvmerge
+                          {{ t('app.routeThroughMkvmerge') }}
                         </n-space>
                       </n-checkbox>
                     </div>
 
                     <n-collapse class="wired-collapse">
-                      <n-collapse-item title="Advanced signal controls" name="advanced">
-                        <n-form-item label="Custom Prompt">
-                          <n-input v-model:value="translationOptions.customPrompt" type="textarea" placeholder="Add temporary protocol instructions..." :rows="4" />
+                      <n-collapse-item :title="t('app.advancedSignalControls')" name="advanced">
+                        <n-form-item :label="t('app.customPrompt')">
+                          <n-input v-model:value="translationOptions.customPrompt" type="textarea" :placeholder="t('app.customPromptPlaceholder')" :rows="4" />
                         </n-form-item>
                       </n-collapse-item>
                     </n-collapse>
@@ -236,18 +255,20 @@
                   <div class="execute-block">
                     <n-button type="primary" size="large" block class="execute-command" :loading="isTranslating" :disabled="!canStartTranslation" @click="startTranslation">
                       <template #icon><n-icon><play-outline /></n-icon></template>
-                      {{ isTranslating ? 'TRANSLATING SIGNAL...' : 'INITIATE TRANSLATION' }}
+                      {{ isTranslating ? t('app.translatingSignal') : t('app.initiateTranslation') }}
                     </n-button>
-                    <p v-if="!canStartTranslation" class="disabled-hint">Attach media with subtitle tracks and verify provider/FFmpeg settings.</p>
+                    <p v-if="!canStartTranslation" class="disabled-hint">
+                      {{ t('app.disabledHint') }}
+                    </p>
                   </div>
 
                   <div v-if="isTranslating || translationProgress > 0" class="progress-console">
                     <div class="progress-head">
-                      <span>sync {{ Math.round(translationProgress) }}%</span>
+                      <span>{{ t('app.sync', { progress: Math.round(translationProgress) }) }}</span>
                       <span>{{ estimatedTime }}</span>
                     </div>
                     <n-progress type="line" :percentage="translationProgress" :status="translationProgress === 100 ? 'success' : 'default'" :show-indicator="false" />
-                    <p class="progress-status">{{ currentStatus || 'awaiting packet response...' }}</p>
+                    <p class="progress-status">{{ currentStatus || t('app.awaitingPacketResponse') }}</p>
                   </div>
                 </aside>
               </section>
@@ -255,6 +276,31 @@
           </div>
 
           <SettingsModal v-model:show="showSettings" ref="settingsRef" />
+
+          <n-modal
+            v-model:show="showLanguageSetup"
+            preset="card"
+            class="settings-modal language-setup-modal"
+            :style="{ width: 'min(520px, calc(100vw - 28px))' }"
+            :title="t('setup.title')"
+            :bordered="false"
+            :closable="false"
+            :mask-closable="false"
+          >
+            <n-space vertical size="large">
+              <div>
+                <p class="eyebrow">{{ t('setup.eyebrow') }}</p>
+                <p class="setup-description">{{ t('setup.description') }}</p>
+              </div>
+              <n-select v-model:value="setupLanguage" :options="interfaceLanguageSelectOptions" />
+              <n-button type="primary" block class="primary-command" @click="completeLanguageSetup">
+                <template #icon>
+                  <n-icon><language-outline /></n-icon>
+                </template>
+                {{ t('setup.continue') }}
+              </n-button>
+            </n-space>
+          </n-modal>
         </n-dialog-provider>
       </n-notification-provider>
     </n-message-provider>
@@ -262,16 +308,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NConfigProvider,
   NMessageProvider,
   NNotificationProvider,
   NDialogProvider,
+  NModal,
   NButton,
   NIcon,
   NSpace,
   NTooltip,
+  NDropdown,
   NScrollbar,
   NFormItem,
   NSelect,
@@ -291,6 +340,7 @@ import {
   SettingsOutline,
   SunnyOutline,
   MoonOutline,
+  LanguageOutline,
   DocumentOutline,
   FolderOpenOutline,
   TrashOutline,
@@ -306,6 +356,13 @@ import {
 import { getCurrentWindow, type DragDropEvent } from '@tauri-apps/api/window'
 import { scanFolderForVideos } from './api/animesubs'
 import { sharedLanguageOptions } from './config/settings'
+import {
+  defaultInterfaceLanguage,
+  interfaceLanguageOptions,
+  setInterfaceLocale,
+  translationLanguageKey,
+  type InterfaceLocale
+} from './i18n'
 import { useAppTheme } from './composables/useAppTheme'
 import { useSettingsState, type SettingsModalExpose } from './composables/useSettingsState'
 import { useTranslationOptions } from './composables/useTranslationOptions'
@@ -314,9 +371,12 @@ import { useTranslationJob } from './composables/useTranslationJob'
 
 const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
 
+const { t } = useI18n()
 const { isDark, theme, themeOverrides, toggleTheme } = useAppTheme()
 
 const showSettings = ref(false)
+const showLanguageSetup = ref(false)
+const setupLanguage = ref<InterfaceLocale>(defaultInterfaceLanguage)
 const settingsRef = ref<SettingsModalExpose | null>(null)
 
 const {
@@ -324,6 +384,7 @@ const {
   ffmpegStatus,
   loadCachedSettings,
   getSettings,
+  updateSettings,
   targetLanguageModel,
   checkFFmpeg
 } = useSettingsState(showSettings, settingsRef)
@@ -333,7 +394,28 @@ const {
   loadTranslationOptions
 } = useTranslationOptions()
 
-const languageOptions = sharedLanguageOptions.filter(option => option.value)
+const languageOptions = computed(() => {
+  return sharedLanguageOptions
+    .filter(option => option.value)
+    .map(option => ({
+      ...option,
+      label: t(translationLanguageKey(option.value))
+    }))
+})
+
+const interfaceLanguageSelectOptions = computed(() => {
+  return interfaceLanguageOptions.map(option => ({
+    label: t(option.labelKey),
+    value: option.value
+  }))
+})
+
+const interfaceDropdownOptions = computed(() => {
+  return interfaceLanguageSelectOptions.value.map(option => ({
+    label: option.label,
+    key: option.value
+  }))
+})
 
 const {
   selectedFiles,
@@ -352,20 +434,22 @@ const {
   backupSubtitle,
   restoreBackup,
   deleteBackup
-} = useVideoFiles(getSettings)
+} = useVideoFiles(getSettings, t)
 
-const providerLabel = computed(() => cachedSettings.value?.provider || 'unconfigured')
-const modelLabel = computed(() => cachedSettings.value?.selectedModel || 'no-model')
+const providerLabel = computed(() => cachedSettings.value?.provider || t('app.unconfigured'))
+const modelLabel = computed(() => cachedSettings.value?.selectedModel || t('app.noModel'))
 const targetLanguageLabel = computed(() => {
   const target = cachedSettings.value?.targetLanguage || targetLanguageModel.value
-  return languageOptions.find(option => option.value === target)?.label || target || 'Target unknown'
+  return languageOptions.value.find(option => option.value === target)?.label
+    || target
+    || t('app.targetUnknown')
 })
 const readyFileCount = computed(() => selectedFiles.value.filter(file => file.videoInfo && file.videoInfo.subtitle_tracks.length > 0).length)
 const totalSubtitleTracks = computed(() => selectedFiles.value.reduce((total, file) => total + (file.videoInfo?.subtitle_tracks.length || 0), 0))
 const totalBackups = computed(() => selectedFiles.value.reduce((total, file) => total + file.backups.length, 0))
 const ffmpegStatusLabel = computed(() => {
-  if (!ffmpegStatus.value) return 'checking'
-  return ffmpegStatus.value.success ? 'online' : 'missing'
+  if (!ffmpegStatus.value) return t('app.checking')
+  return ffmpegStatus.value.success ? t('app.online') : t('app.missing')
 })
 const ffmpegStatusClass = computed(() => ({
   online: ffmpegStatus.value?.success,
@@ -387,13 +471,36 @@ const {
   translationOptions,
   settingsRef,
   showSettings,
-  getSettings
+  getSettings,
+  t
 })
 
 const clearFiles = () => {
   clearSelectedFiles()
   resetProgress()
 }
+
+const changeInterfaceLanguage = (language: string | number) => {
+  if (typeof language !== 'string') return
+  updateSettings({
+    interfaceLanguage: language as InterfaceLocale,
+    hasSelectedInterfaceLanguage: true
+  })
+}
+
+const completeLanguageSetup = () => {
+  updateSettings({
+    interfaceLanguage: setupLanguage.value,
+    hasSelectedInterfaceLanguage: true
+  })
+  showLanguageSetup.value = false
+}
+
+watch(cachedSettings, (settings) => {
+  const language = settings?.interfaceLanguage || defaultInterfaceLanguage
+  setupLanguage.value = language
+  setInterfaceLocale(language)
+}, { immediate: true })
 
 let cleanupDragDrop: (() => void) | null = null
 
@@ -404,6 +511,11 @@ const preventDefaults = (e: Event) => {
 
 onMounted(async () => {
   await loadCachedSettings()
+  const settings = getSettings()
+  if (settings && !settings.hasSelectedInterfaceLanguage) {
+    setupLanguage.value = settings.interfaceLanguage
+    showLanguageSetup.value = true
+  }
   loadTranslationOptions()
   await checkFFmpeg()
 
@@ -554,6 +666,38 @@ textarea {
 
 .wired-header :deep(button) {
   -webkit-app-region: no-drag;
+}
+
+.language-setup-modal {
+  color: var(--wired-paper);
+  font-family: var(--font-body);
+}
+
+.language-setup-modal :deep(.n-card) {
+  border: 1px solid var(--wired-border-strong);
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, rgba(28, 21, 29, 0.98), rgba(6, 5, 6, 0.98)),
+    radial-gradient(circle at 12% 0%, rgba(181, 68, 56, 0.18), transparent 20rem);
+  box-shadow: var(--wired-shadow);
+}
+
+.language-setup-modal :deep(.n-card-header__main) {
+  color: var(--wired-paper-bright);
+  font-family: var(--font-wired);
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.language-setup-modal :deep(.n-card__content) {
+  padding: 22px;
+}
+
+.setup-description {
+  margin-top: 8px;
+  color: var(--wired-paper);
+  line-height: 1.6;
 }
 
 .identity-block,

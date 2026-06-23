@@ -1,8 +1,16 @@
+import {
+  defaultInterfaceLanguage,
+  isInterfaceLocale,
+  type InterfaceLocale
+} from '../i18n'
+
 export interface Settings {
   provider: string
   apiEndpoint: string
   apiKey: string
   selectedModel: string | null
+  interfaceLanguage: InterfaceLocale
+  hasSelectedInterfaceLanguage: boolean
   sourceLanguage: string
   targetLanguage: string
   translationStyle: string
@@ -21,6 +29,8 @@ export const defaultSettings: Settings = {
   apiEndpoint: 'https://api.openai.com/v1',
   apiKey: '',
   selectedModel: null,
+  interfaceLanguage: defaultInterfaceLanguage,
+  hasSelectedInterfaceLanguage: false,
   sourceLanguage: '',
   targetLanguage: 'en',
   translationStyle: 'natural',
@@ -36,26 +46,39 @@ export const settingsForStorage = (settings: Settings): Settings => ({
   apiKey: ''
 })
 
+export const normalizeSettings = (settings: Partial<Settings>): Settings => {
+  const interfaceLanguage = isInterfaceLocale(settings.interfaceLanguage)
+    ? settings.interfaceLanguage
+    : defaultInterfaceLanguage
+
+  return {
+    ...defaultSettings,
+    ...settings,
+    interfaceLanguage,
+    hasSelectedInterfaceLanguage: Boolean(settings.hasSelectedInterfaceLanguage)
+  }
+}
+
 export const sharedLanguageOptions = [
-  { label: 'Auto-detect', value: '' },
-  { label: 'Japanese', value: 'ja' },
-  { label: 'English', value: 'en' },
-  { label: 'Chinese (Simplified)', value: 'zh-CN' },
-  { label: 'Chinese (Traditional)', value: 'zh-TW' },
-  { label: 'Korean', value: 'ko' },
-  { label: 'Spanish', value: 'es' },
-  { label: 'French', value: 'fr' },
-  { label: 'German', value: 'de' },
-  { label: 'Persian', value: 'fa' },
-  { label: 'Portuguese', value: 'pt' },
-  { label: 'Russian', value: 'ru' },
-  { label: 'Italian', value: 'it' },
-  { label: 'Arabic', value: 'ar' },
-  { label: 'Thai', value: 'th' },
-  { label: 'Vietnamese', value: 'vi' },
-  { label: 'Indonesian', value: 'id' },
-  { label: 'Polish', value: 'pl' },
-  { label: 'Turkish', value: 'tr' }
+  { value: '' },
+  { value: 'ja' },
+  { value: 'en' },
+  { value: 'zh-CN' },
+  { value: 'zh-TW' },
+  { value: 'ko' },
+  { value: 'es' },
+  { value: 'fr' },
+  { value: 'de' },
+  { value: 'fa' },
+  { value: 'pt' },
+  { value: 'ru' },
+  { value: 'it' },
+  { value: 'ar' },
+  { value: 'th' },
+  { value: 'vi' },
+  { value: 'id' },
+  { value: 'pl' },
+  { value: 'tr' }
 ]
 
 export const providerRequiresApiKey = (provider?: string | null): boolean => {

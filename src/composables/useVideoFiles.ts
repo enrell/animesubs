@@ -1,5 +1,5 @@
 import { open } from '@tauri-apps/plugin-dialog'
-import { ref, triggerRef } from 'vue'
+import { computed, ref, triggerRef } from 'vue'
 import {
   backupSubtitle as backupSubtitleCommand,
   deleteBackup as deleteBackupCommand,
@@ -11,17 +11,19 @@ import {
 } from '../api/animesubs'
 import type { BackupInfo, SelectedFile } from '../types/domain'
 import type { Settings } from '../config/settings'
+import { localizeBackendMessage } from '../i18n'
 
-export const useVideoFiles = (getSettings: () => Settings | null) => {
+type TranslateFn = (key: string, named?: Record<string, unknown>) => string
+
+export const useVideoFiles = (getSettings: () => Settings | null, t: TranslateFn) => {
   const selectedFiles = ref<SelectedFile[]>([])
-  const subtitleTrackOptions = ref([{ label: 'Auto-detect (first available)', value: '' }])
   const isDragging = ref(false)
   const loadingFiles = ref(false)
   const extractingSubtitle = ref<string | null>(null)
   const backingUp = ref<string | null>(null)
 
-  const updateSubtitleTrackOptions = () => {
-    const options = [{ label: 'Auto-detect (first available)', value: '' }]
+  const subtitleTrackOptions = computed(() => {
+    const options = [{ label: t('app.autoDetectFirstAvailable'), value: '' }]
     const tracks = new Map<string, string>()
 
     for (const file of selectedFiles.value) {
@@ -30,7 +32,7 @@ export const useVideoFiles = (getSettings: () => Settings | null) => {
       for (const track of file.videoInfo.subtitle_tracks) {
         const key = `${track.index}`
         const lang = track.language || 'und'
-        const title = track.title || `Track ${track.index}`
+        const title = track.title || t('track.title', { index: track.index })
         const label = `${title} (${lang}) - ${track.codec}`
         if (!tracks.has(key)) {
           tracks.set(key, label)
@@ -42,8 +44,8 @@ export const useVideoFiles = (getSettings: () => Settings | null) => {
       options.push({ label, value })
     })
 
-    subtitleTrackOptions.value = options
-  }
+    return options
+  })
 
   const addFiles = async (paths: string[]) => {
     const settings = getSettings()
@@ -80,21 +82,19 @@ export const useVideoFiles = (getSettings: () => Settings | null) => {
       } catch (e) {
         selectedFiles.value[fileIndex] = {
           ...selectedFiles.value[fileIndex],
-          error: `${e}`,
+          error: localizeBackendMessage(`${e}`, t),
           loading: false
         }
         triggerRef(selectedFiles)
       }
     }
-
-    updateSubtitleTrackOptions()
   }
 
   const selectFiles = async () => {
     const selected = await open({
       multiple: true,
       filters: [{
-        name: 'Video Files',
+        name: t('dialogs.videoFiles'),
         extensions: ['mkv', 'mp4', 'webm', 'avi', 'mov', 'wmv', 'flv', 'm4v']
       }]
     })
@@ -155,12 +155,10 @@ export const useVideoFiles = (getSettings: () => Settings | null) => {
 
   const removeFile = (index: number) => {
     selectedFiles.value.splice(index, 1)
-    updateSubtitleTrackOptions()
   }
 
   const clearFiles = () => {
     selectedFiles.value = []
-    subtitleTrackOptions.value = [{ label: 'Auto-detect (first available)', value: '' }]
   }
 
   const extractSubtitle = async (file: SelectedFile, trackIndex: number) => {
@@ -257,7 +255,6 @@ export const useVideoFiles = (getSettings: () => Settings | null) => {
     extractSubtitle,
     backupSubtitle,
     restoreBackup,
-    deleteBackup,
-    updateSubtitleTrackOptions
+    deleteBackup
   }
 }

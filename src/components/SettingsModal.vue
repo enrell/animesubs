@@ -4,15 +4,26 @@
     preset="card"
     class="settings-modal"
     :style="{ width: 'min(860px, calc(100vw - 28px))' }"
-    title="wired settings"
+    :title="t('settings.title')"
     :bordered="false"
     size="huge"
     :segmented="{ content: true, footer: 'soft' }"
   >
     <n-tabs type="line" animated class="settings-tabs">
-      <n-tab-pane name="api" tab="API Configuration">
+      <n-tab-pane name="interface" :tab="t('settings.interfaceTab')">
         <n-space vertical size="large">
-          <n-form-item label="Provider" label-placement="left">
+          <n-form-item :label="t('settings.interfaceLanguage')" label-placement="left">
+            <n-select
+              v-model:value="settings.interfaceLanguage"
+              :options="interfaceLanguageSelectOptions"
+            />
+          </n-form-item>
+        </n-space>
+      </n-tab-pane>
+
+      <n-tab-pane name="api" :tab="t('settings.apiTab')">
+        <n-space vertical size="large">
+          <n-form-item :label="t('settings.provider')" label-placement="left">
             <n-select
               v-model:value="settings.provider"
               :options="providerOptions"
@@ -20,7 +31,7 @@
             />
           </n-form-item>
 
-          <n-form-item label="API Endpoint" label-placement="left">
+          <n-form-item :label="t('settings.apiEndpoint')" label-placement="left">
             <n-input
               v-model:value="settings.apiEndpoint"
               :placeholder="getEndpointPlaceholder()"
@@ -28,7 +39,7 @@
             />
           </n-form-item>
           
-          <n-form-item v-if="settings.provider !== 'ollama'" label="API Key" label-placement="left">
+          <n-form-item v-if="settings.provider !== 'ollama'" :label="t('settings.apiKey')" label-placement="left">
             <n-input
               v-model:value="settings.apiKey"
               type="password"
@@ -38,13 +49,13 @@
             />
           </n-form-item>
 
-          <n-form-item label="Model" label-placement="left">
+          <n-form-item :label="t('settings.model')" label-placement="left">
             <n-input-group>
               <n-select
                 v-model:value="settings.selectedModel"
                 :options="modelOptions"
                 :loading="loadingModels"
-                placeholder="Select a model"
+                :placeholder="t('settings.selectModel')"
                 filterable
                 tag
                 style="flex: 1"
@@ -63,10 +74,10 @@
           </n-form-item>
 
           <n-collapse>
-            <n-collapse-item title="Provider Presets" name="presets">
+            <n-collapse-item :title="t('settings.providerPresets')" name="presets">
               <n-space vertical>
                 <n-text depth="3" style="font-size: 12px;">
-                  Click to quickly configure popular providers:
+                  {{ t('settings.providerPresetsDescription') }}
                 </n-text>
                 <n-space>
                   <n-button size="small" @click="setPreset('openai')">OpenAI</n-button>
@@ -83,25 +94,25 @@
         </n-space>
       </n-tab-pane>
 
-      <n-tab-pane name="translation" tab="Translation">
+      <n-tab-pane name="translation" :tab="t('settings.translationTab')">
         <n-space vertical size="large">
-          <n-form-item label="Source Language" label-placement="left">
+          <n-form-item :label="t('settings.sourceLanguage')" label-placement="left">
             <n-select
               v-model:value="settings.sourceLanguage"
               :options="languageOptions"
-              placeholder="Auto-detect"
+              :placeholder="t('settings.autoDetect')"
             />
           </n-form-item>
 
-          <n-form-item label="Target Language" label-placement="left">
+          <n-form-item :label="t('settings.targetLanguage')" label-placement="left">
             <n-select
               v-model:value="settings.targetLanguage"
               :options="languageOptions"
-              placeholder="Select target language"
+              :placeholder="t('settings.selectTargetLanguage')"
             />
           </n-form-item>
 
-          <n-form-item label="Translation Style" label-placement="left">
+          <n-form-item :label="t('settings.translationStyle')" label-placement="left">
             <n-select
               v-model:value="settings.translationStyle"
               :options="styleOptions"
@@ -109,7 +120,7 @@
           </n-form-item>
 
           <n-collapse>
-            <n-collapse-item title="System Prompt Preview" name="prompt">
+            <n-collapse-item :title="t('settings.systemPromptPreview')" name="prompt">
               <n-input
                 :value="getSystemPrompt()"
                 type="textarea"
@@ -122,13 +133,13 @@
         </n-space>
       </n-tab-pane>
 
-      <n-tab-pane name="output" tab="Output">
+      <n-tab-pane name="output" :tab="t('settings.outputTab')">
         <n-space vertical size="large">
-          <n-form-item label="Output Directory" label-placement="left">
+          <n-form-item :label="t('settings.outputDirectory')" label-placement="left">
             <n-input-group>
               <n-input
                 v-model:value="settings.outputDirectory"
-                placeholder="Same as input"
+                :placeholder="t('settings.sameAsInput')"
                 readonly
               />
               <n-button type="primary" ghost @click="selectOutputDir">
@@ -139,18 +150,18 @@
             </n-input-group>
           </n-form-item>
 
-          <n-form-item label="Output Format" label-placement="left">
+          <n-form-item :label="t('settings.outputFormat')" label-placement="left">
             <n-select
               v-model:value="settings.outputFormat"
               :options="formatOptions"
             />
           </n-form-item>
 
-          <n-form-item label="FFmpeg Path" label-placement="left">
+          <n-form-item :label="t('settings.ffmpegPath')" label-placement="left">
             <n-input-group>
               <n-input
                 v-model:value="settings.ffmpegPath"
-                placeholder="ffmpeg (uses PATH)"
+                :placeholder="t('settings.ffmpegPathPlaceholder')"
                 clearable
               />
               <n-button type="primary" ghost @click="selectFfmpegPath">
@@ -163,13 +174,13 @@
 
           <n-divider />
 
-          <n-form-item label="Backup Settings" label-placement="top">
+          <n-form-item :label="t('settings.backupSettings')" label-placement="top">
             <n-space vertical>
               <n-checkbox v-model:checked="settings.autoBackup">
-                Automatically backup subtitles before translation
+                {{ t('settings.autoBackup') }}
               </n-checkbox>
               <n-checkbox v-model:checked="settings.keepOriginalTrack">
-                Keep original subtitle track in video
+                {{ t('settings.keepOriginalTrack') }}
               </n-checkbox>
             </n-space>
           </n-form-item>
@@ -179,12 +190,12 @@
 
     <template #footer>
       <n-space justify="end">
-        <n-button @click="resetSettings">Reset</n-button>
+        <n-button @click="resetSettings">{{ t('settings.reset') }}</n-button>
         <n-button type="primary" @click="saveSettings">
           <template #icon>
             <n-icon><save-outline /></n-icon>
           </template>
-          Save Settings
+          {{ t('settings.saveSettings') }}
         </n-button>
       </n-space>
     </template>
@@ -192,7 +203,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   NModal,
   NTabs,
@@ -220,12 +232,18 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { loadApiKey, saveApiKey, fetchModels as invokeFetchModels } from '../api/animesubs'
 import {
   defaultSettings,
+  normalizeSettings,
   providerRequiresApiKey,
   SETTINGS_STORAGE_KEY,
   settingsForStorage,
   sharedLanguageOptions,
   type Settings
 } from '../config/settings'
+import {
+  interfaceLanguageOptions,
+  setInterfaceLocale,
+  translationLanguageKey
+} from '../i18n'
 
 const props = defineProps<{
   show: boolean
@@ -236,6 +254,7 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const { t } = useI18n()
 
 const showModal = computed({
   get: () => props.show,
@@ -247,17 +266,17 @@ const modelOptions = ref<{ label: string; value: string }[]>([])
 
 const settings = reactive<Settings>({ ...defaultSettings })
 
-const providerOptions = [
+const providerOptions = computed(() => [
   { label: 'OpenAI', value: 'openai' },
   { label: 'Google Gemini', value: 'gemini' },
-  { label: 'Ollama (Local)', value: 'ollama' },
-  { label: 'LM Studio (Local)', value: 'lmstudio' },
-  { label: 'llama.cpp (Local)', value: 'llamacpp' },
+  { label: t('settings.providerLocal', { provider: 'Ollama' }), value: 'ollama' },
+  { label: t('settings.providerLocal', { provider: 'LM Studio' }), value: 'lmstudio' },
+  { label: t('settings.providerLocal', { provider: 'llama.cpp' }), value: 'llamacpp' },
   { label: 'OpenRouter', value: 'openrouter' },
   { label: 'NVIDIA NIM', value: 'nvidia' },
-  { label: 'MiniMax (Token Plan)', value: 'minimax' },
-  { label: 'Custom OpenAI-compatible', value: 'custom' }
-]
+  { label: t('settings.minimaxTokenPlan'), value: 'minimax' },
+  { label: t('settings.customOpenAICompatible'), value: 'custom' }
+])
 
 const providerPresets: Record<string, { endpoint: string; models: string[] }> = {
   openai: {
@@ -298,104 +317,48 @@ const providerPresets: Record<string, { endpoint: string; models: string[] }> = 
   }
 }
 
-const languageOptions = sharedLanguageOptions
+const languageOptions = computed(() => {
+  return sharedLanguageOptions.map(option => ({
+    ...option,
+    label: t(translationLanguageKey(option.value))
+  }))
+})
 
-const styleOptions = [
-  { label: 'Natural & Fluent', value: 'natural' },
-  { label: 'Literal Translation', value: 'literal' },
-  { label: 'Localized (Cultural Adaptation)', value: 'localized' },
-  { label: 'Formal', value: 'formal' },
-  { label: 'Casual', value: 'casual' },
-  { label: 'Honorifics Preserved', value: 'honorifics' }
-]
+const interfaceLanguageSelectOptions = computed(() => {
+  return interfaceLanguageOptions.map(option => ({
+    label: t(option.labelKey),
+    value: option.value
+  }))
+})
 
-const formatOptions = [
-  { label: 'Auto-detect (match source track)', value: '' },
-  { label: 'SRT (.srt)', value: 'srt' },
-  { label: 'ASS/SSA (.ass)', value: 'ass' },
-  { label: 'WebVTT (.vtt)', value: 'vtt' }
-]
+const styleOptions = computed(() => [
+  { label: t('styles.natural'), value: 'natural' },
+  { label: t('styles.literal'), value: 'literal' },
+  { label: t('styles.localized'), value: 'localized' },
+  { label: t('styles.formal'), value: 'formal' },
+  { label: t('styles.casual'), value: 'casual' },
+  { label: t('styles.honorifics'), value: 'honorifics' }
+])
 
-const systemPrompts: Record<string, string> = {
-  natural: `You are an expert anime subtitle translator. Translate the following subtitle lines to {targetLang}.
-
-Guidelines:
-- Provide natural, fluent translations that sound like native speech
-- Preserve the emotional tone and intent of the original dialogue
-- Adapt idioms and expressions to their closest natural equivalent
-- Keep character names in their original form unless there's a well-known localized version
-- Maintain the pacing suitable for subtitle reading
-- Do NOT add explanations or notes, only provide the translation
-
-{context}`,
-
-  literal: `You are a precise subtitle translator. Translate the following subtitle lines to {targetLang}.
-
-Guidelines:
-- Translate as literally as possible while maintaining grammatical correctness
-- Preserve the original sentence structure when feasible
-- Keep all names and terms in their original form
-- Do not add or remove information from the original
-- Do NOT add explanations or notes, only provide the translation
-
-{context}`,
-
-  localized: `You are a localization expert for anime subtitles. Translate and adapt the following lines to {targetLang}.
-
-Guidelines:
-- Adapt cultural references to equivalents the target audience will understand
-- Convert measurements, currencies, and cultural concepts appropriately
-- Rewrite jokes and wordplay to work in the target language
-- Make dialogue feel natural for the target culture
-- Preserve the overall story meaning and character relationships
-- Do NOT add explanations or notes, only provide the translation
-
-{context}`,
-
-  formal: `You are a professional subtitle translator. Translate the following lines to {targetLang} using formal language.
-
-Guidelines:
-- Use formal register and polite language
-- Avoid slang, contractions, and casual expressions
-- Maintain professional and respectful tone
-- Suitable for educational or professional contexts
-- Do NOT add explanations or notes, only provide the translation
-
-{context}`,
-
-  casual: `You are a subtitle translator specializing in casual dialogue. Translate to {targetLang}.
-
-Guidelines:
-- Use casual, conversational language
-- Include appropriate slang and colloquialisms
-- Use contractions and informal expressions
-- Match the relaxed tone of casual conversation
-- Do NOT add explanations or notes, only provide the translation
-
-{context}`,
-
-  honorifics: `You are an anime subtitle translator who preserves Japanese honorifics. Translate to {targetLang}.
-
-Guidelines:
-- Keep Japanese honorifics (-san, -kun, -chan, -sama, -sensei, -senpai, etc.)
-- Preserve name order (family name first if appropriate)
-- Keep certain untranslatable terms (onii-chan, kawaii, etc.) with context clues
-- Maintain the social relationship nuances through honorific usage
-- Translate the rest naturally and fluently
-- Do NOT add explanations or notes, only provide the translation
-
-{context}`
-}
+const formatOptions = computed(() => [
+  { label: t('formats.auto'), value: '' },
+  { label: t('formats.srt'), value: 'srt' },
+  { label: t('formats.ass'), value: 'ass' },
+  { label: t('formats.vtt'), value: 'vtt' }
+])
 
 const getSystemPrompt = (): string => {
-  const langName = languageOptions.find(l => l.value === settings.targetLanguage)?.label || settings.targetLanguage
+  const langName = languageOptions.value.find(l => l.value === settings.targetLanguage)?.label
+    || settings.targetLanguage
   const context = settings.sourceLanguage 
-    ? `Source language: ${languageOptions.find(l => l.value === settings.sourceLanguage)?.label || settings.sourceLanguage}`
-    : 'Detect the source language automatically.'
+    ? t('prompts.sourceLanguage', {
+      language: languageOptions.value.find(l => l.value === settings.sourceLanguage)?.label
+        || settings.sourceLanguage
+    })
+    : t('prompts.detectSourceLanguage')
   
-  return (systemPrompts[settings.translationStyle] || systemPrompts.natural)
-    .replace('{targetLang}', langName)
-    .replace('{context}', context)
+  const promptKey = `prompts.${settings.translationStyle}`
+  return t(promptKey, { targetLang: langName, context })
 }
 
 const getEndpointPlaceholder = (): string => {
@@ -408,12 +371,12 @@ const getApiKeyPlaceholder = (): string => {
     gemini: 'AIza...',
     openrouter: 'sk-or-...',
     nvidia: 'nvapi-...',
-    minimax: 'Bearer token from MiniMax Token Plan',
-    lmstudio: '(optional)',
-    llamacpp: '(optional)',
-    custom: 'API key'
+    minimax: t('settings.bearerToken'),
+    lmstudio: t('settings.optional'),
+    llamacpp: t('settings.optional'),
+    custom: t('settings.apiKeyPlaceholder')
   }
-  return placeholders[settings.provider] || 'API key'
+  return placeholders[settings.provider] || t('settings.apiKeyPlaceholder')
 }
 
 const loadProviderApiKey = async (provider: string) => {
@@ -440,7 +403,9 @@ const onProviderChange = async (provider: string) => {
 const setPreset = async (provider: string) => {
   settings.provider = provider
   await onProviderChange(provider)
-  message.info(`Configured for ${providerOptions.find(p => p.value === provider)?.label}`)
+  message.info(t('settings.configuredFor', {
+    provider: providerOptions.value.find(p => p.value === provider)?.label || provider
+  }))
 }
 
 // Load settings from localStorage on mount
@@ -449,7 +414,7 @@ const loadSettings = async () => {
   if (saved) {
     try {
       const parsed = JSON.parse(saved)
-      Object.assign(settings, defaultSettings, parsed, { apiKey: '' })
+      Object.assign(settings, normalizeSettings({ ...parsed, apiKey: '' }))
       // Load cached models for provider
       const cachedModels = localStorage.getItem(`animesubs-models-${settings.provider}`)
       if (cachedModels) {
@@ -468,12 +433,12 @@ onMounted(() => {
 
 const fetchModels = async () => {
   if (!settings.apiEndpoint) {
-    message.warning('Please enter API endpoint first')
+    message.warning(t('settings.enterApiEndpointFirst'))
     return
   }
 
   if (providerRequiresApiKey(settings.provider) && !settings.apiKey) {
-    message.warning('Please enter API key first')
+    message.warning(t('settings.enterApiKeyFirst'))
     return
   }
 
@@ -487,9 +452,9 @@ const fetchModels = async () => {
     )
     modelOptions.value = models
     localStorage.setItem(`animesubs-models-${settings.provider}`, JSON.stringify(models))
-    message.success(`Loaded ${models.length} models`)
+    message.success(t('settings.loadedModels', { count: models.length }))
   } catch (error) {
-    message.error(`Failed to fetch models: ${error}`)
+    message.error(t('settings.failedToFetchModels', { error }))
     // Fall back to preset models
     const preset = providerPresets[settings.provider]
     if (preset?.models.length) {
@@ -504,7 +469,7 @@ const selectOutputDir = async () => {
   const selected = await open({
     directory: true,
     multiple: false,
-    title: 'Select Output Directory'
+    title: t('settings.selectOutputDirectory')
   })
   
   if (selected) {
@@ -515,7 +480,7 @@ const selectOutputDir = async () => {
 const selectFfmpegPath = async () => {
   const selected = await open({
     multiple: false,
-    title: 'Select FFmpeg Executable'
+    title: t('settings.selectFfmpegExecutable')
   })
   
   if (selected) {
@@ -524,17 +489,25 @@ const selectFfmpegPath = async () => {
 }
 
 const saveSettings = async () => {
+  settings.hasSelectedInterfaceLanguage = true
   await saveApiKey(settings.provider, settings.apiKey)
-  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsForStorage(settings)))
-  message.success('Settings saved')
+  localStorage.setItem(
+    SETTINGS_STORAGE_KEY,
+    JSON.stringify(settingsForStorage(settings))
+  )
+  message.success(t('settings.settingsSaved'))
   showModal.value = false
 }
 
 const resetSettings = () => {
   Object.assign(settings, defaultSettings)
   modelOptions.value = []
-  message.info('Settings reset to defaults')
+  message.info(t('settings.settingsReset'))
 }
+
+watch(() => settings.interfaceLanguage, (language) => {
+  setInterfaceLocale(language)
+})
 
 defineExpose({ settings, getSystemPrompt })
 </script>
