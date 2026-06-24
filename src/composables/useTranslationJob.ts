@@ -219,7 +219,7 @@ export const useTranslationJob = ({
         },
         sourceLang: settings.sourceLanguage || 'auto',
         targetLang: settings.targetLanguage,
-        outputFormat: settings.outputFormat || 'srt',
+        outputFormat: settings.outputFormat,
         outputDirectory: settings.outputDirectory || null,
         ffmpegPath: settings.ffmpegPath || null,
         subtitleTrack: translationOptions.subtitleTrack

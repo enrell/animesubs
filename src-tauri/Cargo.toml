@@ -1,6 +1,6 @@
 [package]
 name = "animesubs"
-version = "1.0.3"
+version = "1.0.4"
 description = "Desktop app to extract, translate and embed subtitles into videos."
 authors = ["Ênrell"]
 edition = "2021"
@@ -39,4 +39,3 @@ tokio = { version = "1", features = ["full"] }
 encoding_rs = "0.8"
 chardetng = "0.1"
 futures = "0.3"
-

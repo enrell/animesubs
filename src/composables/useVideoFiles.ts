@@ -172,7 +172,7 @@ export const useVideoFiles = (getSettings: () => Settings | null, t: TranslateFn
         videoPath: file.path,
         trackIndex,
         outputPath: null,
-        format: settings?.outputFormat || 'srt',
+        format: settings?.outputFormat || null,
         temporary: false,
         ffmpegPath: settings?.ffmpegPath || null
       })

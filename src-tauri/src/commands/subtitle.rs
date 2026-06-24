@@ -1,8 +1,8 @@
 use crate::models::*;
 use crate::utils::*;
 use regex::Regex;
-use std::sync::LazyLock;
 use std::path::Path;
+use std::sync::LazyLock;
 
 #[tauri::command]
 pub async fn extract_subtitle(
@@ -22,7 +22,7 @@ pub async fn extract_subtitle(
         .get(track_index as usize)
         .ok_or("Subtitle track not found")?;
 
-    let fmt = format.unwrap_or_else(|| "srt".to_string());
+    let fmt = resolve_extraction_format(format.as_deref(), &track.codec);
 
     let output = if let Some(out) = output_path {
         Path::new(&out).to_path_buf()
@@ -71,6 +71,22 @@ pub async fn extract_subtitle(
             output_path: None,
             error: Some(String::from_utf8_lossy(&result.stderr).to_string()),
         })
+    }
+}
+
+fn resolve_extraction_format(format: Option<&str>, codec: &str) -> String {
+    match format.map(|value| value.trim().to_ascii_lowercase()) {
+        Some(value) if !value.is_empty() && value != "auto" => value,
+        _ => {
+            let codec = codec.to_ascii_lowercase();
+            if codec.contains("ass") || codec.contains("ssa") {
+                "ass".to_string()
+            } else if codec.contains("webvtt") || codec.contains("vtt") {
+                "vtt".to_string()
+            } else {
+                "srt".to_string()
+            }
+        }
     }
 }
 
@@ -157,8 +173,7 @@ fn parse_ass_file(content: &str) -> Result<SubtitleData, String> {
     })
 }
 
-static HTML_TAG_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
+static HTML_TAG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]*>").unwrap());
 
 fn parse_srt_file(content: &str) -> Result<SubtitleData, String> {
     let mut lines: Vec<DialogLine> = Vec::new();
@@ -263,11 +278,7 @@ fn parse_vtt_file(content: &str) -> Result<SubtitleData, String> {
             let parts: Vec<&str> = trimmed.split("-->").collect();
             if parts.len() >= 2 {
                 current_start = parts[0].trim().to_string();
-                current_end = parts[1]
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
+                current_end = parts[1].split_whitespace().next().unwrap_or("").to_string();
             }
             in_cue = true;
             continue;
@@ -421,5 +432,53 @@ Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,♪ la la ♪
         assert_eq!(data.lines[0].style.as_deref(), Some("Default"));
         assert_eq!(data.lines[0].name.as_deref(), Some("Alice"));
         assert!(data.ass_header.unwrap().contains("[Events]"));
+    }
+
+    #[test]
+    fn parse_ass_reads_dialogue_with_complex_override_tags() {
+        let first_dialogue = concat!(
+            "Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,",
+            "{\\t(25,2235,\\fscx109.48\\fscy109.48)",
+            "\\blur0.3\\fs27\\c&H434343&\\frz-5.26\\fax0.05",
+            "\\move(883.5,453,877.26,449.01,25,2235)}",
+            "Served By: Yamada\n",
+        );
+        let second_dialogue = concat!(
+            "Dialogue: 0,0:00:05.00,0:00:08.00,Default,,0,0,0,,",
+            "{\\fad(500,0)\\c&H4A6EE1&}\"",
+            "{\\c&H07E1C8&}M{\\c&H4A6EE1&}o",
+            "{\\c&H07E1C8&}v{\\c&H4A6EE1&}i",
+            "{\\c&H07E1C8&}n{\\c&H4A6EE1&}g ",
+            "{\\c&H07E1C8&}a{\\c&H4A6EE1&}n",
+            "{\\c&H07E1C8&}d {\\c&H4A6EE1&}G",
+            "{\\c&H07E1C8&}i{\\c&H4A6EE1&}r",
+            "{\\c&H07E1C8&}l{\\c&H4A6EE1&}f",
+            "{\\c&H07E1C8&}r{\\c&H4A6EE1&}i",
+            "{\\c&H07E1C8&}e{\\c&H4A6EE1&}n",
+            "{\\c&H07E1C8&}d{\\c&H4A6EE1&}\"\n",
+        );
+        let content = format!(
+            r#"[Script Info]
+Title: Issue 5
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"#,
+        ) + first_dialogue
+            + second_dialogue;
+
+        let data = parse_ass_file(&content).unwrap();
+
+        assert_eq!(data.line_count, 2);
+        assert_eq!(data.lines[0].text, "Served By: Yamada");
+        assert_eq!(data.lines[1].text, "\"Moving and Girlfriend\"");
+    }
+
+    #[test]
+    fn auto_extraction_format_keeps_ass_tracks_as_ass() {
+        assert_eq!(resolve_extraction_format(None, "ass"), "ass");
+        assert_eq!(resolve_extraction_format(Some(""), "ssa"), "ass");
+        assert_eq!(resolve_extraction_format(Some(" Auto "), "webvtt"), "vtt");
+        assert_eq!(resolve_extraction_format(Some("srt"), "ass"), "srt");
     }
 }
