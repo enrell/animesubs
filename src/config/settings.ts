@@ -13,7 +13,7 @@ export interface Settings {
   hasSelectedInterfaceLanguage: boolean
   sourceLanguage: string
   targetLanguage: string
-  translationStyle: string
+  customSystemPrompt: string
   outputDirectory: string
   outputFormat: string
   ffmpegPath: string
@@ -33,7 +33,7 @@ export const defaultSettings: Settings = {
   hasSelectedInterfaceLanguage: false,
   sourceLanguage: '',
   targetLanguage: 'en',
-  translationStyle: 'natural',
+  customSystemPrompt: '',
   outputDirectory: '',
   outputFormat: '',
   ffmpegPath: '',

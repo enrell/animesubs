@@ -114,22 +114,18 @@
             />
           </n-form-item>
 
-          <n-form-item :label="t('settings.translationStyle')" label-placement="left">
-            <n-select
-              v-model:value="settings.translationStyle"
-              :options="styleOptions"
-            />
-          </n-form-item>
-
           <n-collapse>
             <n-collapse-item :title="t('settings.systemPromptPreview')" name="prompt">
               <n-input
-                :value="getSystemPrompt()"
+                v-model:value="settings.customSystemPrompt"
                 type="textarea"
-                readonly
                 :rows="8"
+                :placeholder="getSystemPrompt()"
                 style="font-family: monospace; font-size: 12px;"
               />
+              <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block;">
+                {{ t('settings.customSystemPromptHint') }}
+              </n-text>
             </n-collapse-item>
           </n-collapse>
         </div>
@@ -332,15 +328,6 @@ const interfaceLanguageSelectOptions = computed(() => {
   }))
 })
 
-const styleOptions = computed(() => [
-  { label: t('styles.natural'), value: 'natural' },
-  { label: t('styles.literal'), value: 'literal' },
-  { label: t('styles.localized'), value: 'localized' },
-  { label: t('styles.formal'), value: 'formal' },
-  { label: t('styles.casual'), value: 'casual' },
-  { label: t('styles.honorifics'), value: 'honorifics' }
-])
-
 const formatOptions = computed(() => [
   { label: t('formats.auto'), value: '' },
   { label: t('formats.srt'), value: 'srt' },
@@ -351,15 +338,14 @@ const formatOptions = computed(() => [
 const getSystemPrompt = (): string => {
   const langName = languageOptions.value.find(l => l.value === settings.targetLanguage)?.label
     || settings.targetLanguage
-  const context = settings.sourceLanguage 
+  const context = settings.sourceLanguage
     ? t('prompts.sourceLanguage', {
       language: languageOptions.value.find(l => l.value === settings.sourceLanguage)?.label
         || settings.sourceLanguage
     })
     : t('prompts.detectSourceLanguage')
-  
-  const promptKey = `prompts.${settings.translationStyle}`
-  return t(promptKey, { targetLang: langName, context })
+
+  return t('prompts.unified', { targetLang: langName, context })
 }
 
 const getEndpointPlaceholder = (): string => {

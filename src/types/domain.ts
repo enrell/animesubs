@@ -84,6 +84,7 @@ export interface TranslationJobRequest {
   useMkvmerge: boolean
   autoBackup: boolean
   keepOriginalTrack: boolean
+  contextProfile: ContextProfile | null
 }
 
 export interface TranslationJobProgress {
@@ -112,4 +113,62 @@ export interface TranslationJobResult {
   totalFiles: number
   failures: string[]
   outputs: TranslationJobOutput[]
+}
+
+export interface CharacterProfile {
+  name: string
+  role: string | null
+  description: string | null
+  relationships: string[] | null
+  verified: boolean
+}
+
+export interface TerminologyEntry {
+  source_term: string
+  translated_term: string
+  notes: string | null
+}
+
+export interface MediaMatch {
+  provider: string
+  source_id: string
+  title_display: string
+  title_native: string | null
+  title_english: string | null
+  title_romaji: string | null
+  synopsis: string | null
+  genres: string[]
+  tags: string[]
+  aliases: string[]
+  format: string | null
+  episodes: number | null
+  season: string | null
+  season_year: number | null
+}
+
+export interface ContextProfile {
+  title: string | null
+  characters: CharacterProfile[]
+  locations: string[]
+  plot_summary: string | null
+  terminology: TerminologyEntry[]
+  tone_notes: string | null
+  custom_instructions: string | null
+  source_path: string | null
+  created_at: string
+  updated_at: string
+  media_match: MediaMatch | null
+}
+
+export interface ContextExtractionRequest {
+  filename: string
+  subtitleData: SubtitleData
+  config: LlmConfig
+  sourceLang: string
+  targetLang: string
+  customInstructions: string | null
+}
+
+export interface ContextExtractionResult {
+  profile: ContextProfile
 }

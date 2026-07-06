@@ -68,6 +68,7 @@ pub struct TranslationRequest {
     pub source_lang: String,
     pub target_lang: String,
     pub style: String,
+    pub context_profile: Option<ContextProfile>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -120,6 +121,7 @@ pub struct TranslationJobRequest {
     pub use_mkvmerge: bool,
     pub auto_backup: bool,
     pub keep_original_track: bool,
+    pub context_profile: Option<ContextProfile>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -146,4 +148,70 @@ pub struct TranslationJobResult {
     pub total_files: usize,
     pub failures: Vec<String>,
     pub outputs: Vec<TranslationJobOutput>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CharacterProfile {
+    pub name: String,
+    pub role: Option<String>,
+    pub description: Option<String>,
+    pub relationships: Option<Vec<String>>,
+    pub verified: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ContextProfile {
+    pub title: Option<String>,
+    pub characters: Vec<CharacterProfile>,
+    pub locations: Vec<String>,
+    pub plot_summary: Option<String>,
+    pub terminology: Vec<TerminologyEntry>,
+    pub tone_notes: Option<String>,
+    pub custom_instructions: Option<String>,
+    pub source_path: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub media_match: Option<MediaMatch>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MediaMatch {
+    pub provider: String,
+    pub source_id: String,
+    pub title_display: String,
+    pub title_native: Option<String>,
+    pub title_english: Option<String>,
+    pub title_romaji: Option<String>,
+    pub synopsis: Option<String>,
+    pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub aliases: Vec<String>,
+    pub format: Option<String>,
+    pub episodes: Option<i32>,
+    pub season: Option<String>,
+    pub season_year: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TerminologyEntry {
+    pub source_term: String,
+    pub translated_term: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextExtractionRequest {
+    pub filename: String,
+    pub subtitle_data: SubtitleData,
+    pub config: LLMConfig,
+    pub source_lang: String,
+    pub target_lang: String,
+    pub custom_instructions: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextExtractionResult {
+    pub profile: ContextProfile,
 }

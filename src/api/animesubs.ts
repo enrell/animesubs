@@ -1,6 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
   BackupInfo,
+  ContextExtractionRequest,
+  ContextExtractionResult,
+  ContextProfile,
   ExtractResult,
   LlmConfig,
   OperationResult,
@@ -92,3 +95,12 @@ export const fetchModels = (endpoint: string, apiKey?: string | null, provider?:
     apiKey: apiKey || null,
     provider: provider || null
   })
+
+export const extractContextProfile = (request: ContextExtractionRequest) =>
+  invoke<ContextExtractionResult>('extract_context_profile', { request })
+
+export const saveContextProfile = (profile: ContextProfile, outputPath: string) =>
+  invoke<OperationResult>('save_context_profile', { profile, outputPath })
+
+export const loadContextProfile = (filePath: string) =>
+  invoke<ContextProfile>('load_context_profile', { filePath })

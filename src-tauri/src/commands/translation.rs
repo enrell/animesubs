@@ -1,6 +1,7 @@
 use crate::models::*;
 use crate::providers::{call_llm_api_with_context, generate_compaction_summary};
 use crate::utils::*;
+use crate::utils::format_context_profile;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
@@ -86,12 +87,18 @@ pub async fn translate_subtitles(
     config: LLMConfig,
     source_lang: String,
     target_lang: String,
+    context_profile: Option<ContextProfile>,
 ) -> Result<SubtitleData, String> {
     let total_lines = subtitle_data.lines.len();
 
     if total_lines == 0 {
         return Err("No dialog lines to translate".to_string());
     }
+
+    let context_text = context_profile
+        .as_ref()
+        .map(format_context_profile)
+        .filter(|t| !t.trim().is_empty());
 
     // Estimate total tokens and decide strategy
     let total_text_tokens: usize = subtitle_data
@@ -160,12 +167,26 @@ pub async fn translate_subtitles(
         };
         let _ = app.emit("translation-progress", &progress);
 
+        let combined_context: Option<String> = match (&context_text, &compacted_context) {
+            (Some(ctx), Some(comp)) => Some(format!(
+                "PROJECT CONTEXT (characters, terminology, tone):\n{}\n\n\
+                 PREVIOUS CHUNKS SUMMARY:\n{}",
+                ctx, comp
+            )),
+            (Some(ctx), None) => Some(format!(
+                "PROJECT CONTEXT (characters, terminology, tone):\n{}",
+                ctx
+            )),
+            (None, Some(comp)) => Some(comp.clone()),
+            (None, None) => None,
+        };
+
         let translations = call_llm_api_with_context(
             &config,
             &chunk_lines,
             &source_lang,
             &target_lang,
-            compacted_context.as_deref(),
+            combined_context.as_deref(),
         )
         .await?;
 
@@ -714,6 +735,7 @@ pub async fn start_translation_job(
                     request.source_lang.clone()
                 },
                 request.target_lang.clone(),
+                request.context_profile.clone(),
             )
             .await?;
 

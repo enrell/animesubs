@@ -8,12 +8,12 @@ import {
 } from '../config/settings'
 import { localizeBackendMessage } from '../i18n'
 import type {
+  ContextProfile,
   OperationResult,
   SelectedFile,
   TranslationBatchProgress,
   TranslationJobProgress
 } from '../types/domain'
-import type { SettingsModalExpose } from './useSettingsState'
 import type { TranslationOptions } from './useTranslationOptions'
 
 type TranslateFn = (key: string, named?: Record<string, unknown>) => string
@@ -72,10 +72,11 @@ interface UseTranslationJobParams {
   cachedSettings: Ref<Settings | null>
   ffmpegStatus: Ref<OperationResult | null>
   translationOptions: TranslationOptions
-  settingsRef: Ref<SettingsModalExpose | null>
   showSettings: Ref<boolean>
   getSettings: () => Settings | null
   t: TranslateFn
+  contextProfile: Ref<ContextProfile | null>
+  contextEnabled: Ref<boolean>
 }
 
 export const useTranslationJob = ({
@@ -83,10 +84,11 @@ export const useTranslationJob = ({
   cachedSettings,
   ffmpegStatus,
   translationOptions,
-  settingsRef,
   showSettings,
   getSettings,
-  t
+  t,
+  contextProfile,
+  contextEnabled
 }: UseTranslationJobParams) => {
   const isTranslating = ref(false)
   const translationProgress = ref(0)
@@ -171,8 +173,7 @@ export const useTranslationJob = ({
       f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0
     )
     const videoPaths = filesToProcess.map(file => file.path)
-    const systemPrompt = settingsRef.value?.getSystemPrompt?.()
-      || t('prompts.fallbackSystemPrompt', { targetLanguage: settings.targetLanguage })
+    const systemPrompt = settings.customSystemPrompt?.trim() || ''
 
     isTranslating.value = true
     setProgress(0)
@@ -228,7 +229,8 @@ export const useTranslationJob = ({
         embedSubtitles: translationOptions.embedSubtitles,
         useMkvmerge: translationOptions.useMkvmerge,
         autoBackup: settings.autoBackup,
-        keepOriginalTrack: settings.keepOriginalTrack
+        keepOriginalTrack: settings.keepOriginalTrack,
+        contextProfile: contextEnabled.value ? contextProfile.value : null
       })
 
       flushProgressUpdate()

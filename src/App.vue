@@ -267,6 +267,20 @@
                         <n-form-item :label="t('app.customPrompt')">
                           <n-input v-model:value="translationOptions.customPrompt" type="textarea" :placeholder="t('app.customPromptPlaceholder')" :rows="4" />
                         </n-form-item>
+
+                        <ContextExtractionPanel
+                          :context-profile="contextProfile"
+                          :is-extracting="isExtractingContext"
+                          :extraction-status="extractionStatus"
+                          :context-enabled="contextEnabled"
+                          :can-extract="canExtractContext"
+                          @toggle="toggleContext"
+                          @clear="onClearContext"
+                          @update="onUpdateContext"
+                          @extract="onExtractContext"
+                          @save-file="onSaveContextToFile"
+                          @load-file="onLoadContextFromFile"
+                        />
                       </n-collapse-item>
                     </n-collapse>
                   </div>
@@ -388,8 +402,11 @@ import { useSettingsState, type SettingsModalExpose } from './composables/useSet
 import { useTranslationOptions } from './composables/useTranslationOptions'
 import { useVideoFiles } from './composables/useVideoFiles'
 import { useTranslationJob } from './composables/useTranslationJob'
+import { useContextProfile } from './composables/useContextProfile'
+import type { ContextProfile } from './types/domain'
 
 const SettingsModal = defineAsyncComponent(() => import('./components/SettingsModal.vue'))
+const ContextExtractionPanel = defineAsyncComponent(() => import('./components/ContextExtractionPanel.vue'))
 
 const { t } = useI18n()
 const { isDark, theme, themeOverrides, toggleTheme } = useAppTheme()
@@ -471,6 +488,22 @@ const ffmpegStatusClass = computed(() => ({
 }))
 
 const {
+  contextProfile,
+  isExtracting: isExtractingContext,
+  extractionStatus,
+  contextEnabled,
+  loadStoredProfile,
+  updateProfile,
+  clearProfile,
+  extractFromVideo,
+  saveProfileToFile,
+  loadProfileFromFile,
+  toggleContext
+} = useContextProfile({ cachedSettings, getSettings })
+
+const contextProfileRef = computed(() => contextProfile.value)
+
+const {
   isTranslating,
   translationProgress,
   currentStatus,
@@ -483,11 +516,67 @@ const {
   cachedSettings,
   ffmpegStatus,
   translationOptions,
-  settingsRef,
   showSettings,
   getSettings,
-  t
+  t,
+  contextProfile: contextProfileRef,
+  contextEnabled
 })
+
+const canExtractContext = computed(() => {
+  const settings = cachedSettings.value
+  return Boolean(settings?.selectedModel) && selectedFiles.value.some(
+    f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0
+  )
+})
+
+const onClearContext = () => {
+  clearProfile()
+}
+
+const onUpdateContext = (profile: ContextProfile) => {
+  updateProfile(profile)
+}
+
+const onExtractContext = async () => {
+  const file = selectedFiles.value.find(
+    f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0
+  )
+  if (!file || !file.videoInfo) return
+  const trackIndex = translationOptions.subtitleTrack
+    ? parseInt(translationOptions.subtitleTrack)
+    : 0
+  try {
+    await extractFromVideo(file.path, file.name, trackIndex)
+  } catch (e) {
+    console.error('Context extraction failed:', e)
+  }
+}
+
+const onSaveContextToFile = async () => {
+  if (!contextProfile.value) return
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const filePath = await save({
+      title: t('context.saveToFile'),
+      defaultPath: 'context-profile.json',
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (filePath) {
+      await saveProfileToFile(filePath)
+    }
+  } catch (e) {
+    console.error('Failed to save context profile:', e)
+  }
+}
+
+const onLoadContextFromFile = async (filePath: string) => {
+  try {
+    await loadProfileFromFile(filePath)
+  } catch (e) {
+    console.error('Failed to load context profile:', e)
+  }
+}
 
 const clearFiles = () => {
   clearSelectedFiles()
@@ -538,6 +627,7 @@ onMounted(async () => {
     showLanguageSetup.value = true
   }
   loadTranslationOptions()
+  loadStoredProfile()
   await checkFFmpeg()
 
   window.addEventListener('dragover', preventDefaults)

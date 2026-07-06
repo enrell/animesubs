@@ -16,7 +16,11 @@ pub(crate) fn build_provider_request_with_context(
     target_lang: &str,
     compact_context: Option<&str>,
 ) -> Result<ProviderRequest, String> {
-    let mut system_prompt = build_translation_prompt(&config.system_prompt, source_lang, target_lang);
+    let mut system_prompt = if config.system_prompt.trim().is_empty() {
+        build_translation_prompt(&config.system_prompt, source_lang, target_lang)
+    } else {
+        config.system_prompt.clone()
+    };
     if let Some(ctx) = compact_context.filter(|c| !c.trim().is_empty()) {
         system_prompt = format!(
             "{}\n\nCONTEXT FROM PREVIOUS SUBTITLES (characters, plot, terminology):\n{}",

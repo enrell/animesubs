@@ -3,7 +3,7 @@ pub mod models;
 pub mod providers;
 pub mod utils;
 
-use commands::{backup, embedding, subtitle, translation, utils as utility_commands, video};
+use commands::{backup, context, embedding, subtitle, translation, utils as utility_commands, video};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,6 +30,9 @@ pub fn run() {
             translation::translate_subtitles,
             translation::save_translated_subtitles,
             translation::start_translation_job,
+            context::extract_context_profile,
+            context::save_context_profile,
+            context::load_context_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

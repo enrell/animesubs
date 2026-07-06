@@ -93,8 +93,8 @@ const messages = {
       autoDetect: 'Auto-detect',
       targetLanguage: 'Target Language',
       selectTargetLanguage: 'Select target language',
-      translationStyle: 'Translation Style',
-      systemPromptPreview: 'System Prompt Preview',
+      systemPromptPreview: 'System Prompt',
+      customSystemPromptHint: 'Leave empty to use the default prompt. Enter your own text to override it completely.',
       outputDirectory: 'Output Directory',
       sameAsInput: 'Same as input',
       outputFormat: 'Output Format',
@@ -120,14 +120,6 @@ const messages = {
       bearerToken: 'Bearer token from MiniMax Token Plan',
       optional: '(optional)',
       apiKeyPlaceholder: 'API key'
-    },
-    styles: {
-      natural: 'Natural & Fluent',
-      literal: 'Literal Translation',
-      localized: 'Localized (Cultural Adaptation)',
-      formal: 'Formal',
-      casual: 'Casual',
-      honorifics: 'Honorifics Preserved'
     },
     formats: {
       auto: 'Auto-detect (match source track)',
@@ -218,12 +210,52 @@ const messages = {
       sourceLanguage: 'Source language: {language}',
       detectSourceLanguage: 'Detect the source language automatically.',
       fallbackSystemPrompt: 'You are a professional subtitle translator. Translate the following subtitle lines to {targetLanguage}. Keep translations natural and contextually appropriate for anime dialogue.',
-      natural: 'You are an expert anime subtitle translator. Translate the following subtitle lines to {targetLang}.\n\nGuidelines:\n- Provide natural, fluent translations that sound like native speech\n- Preserve the emotional tone and intent of the original dialogue\n- Adapt idioms and expressions to their closest natural equivalent\n- Keep character names in their original form unless there is a well-known localized version\n- Maintain the pacing suitable for subtitle reading\n- Do NOT add explanations or notes, only provide the translation\n\n{context}',
-      literal: 'You are a precise subtitle translator. Translate the following subtitle lines to {targetLang}.\n\nGuidelines:\n- Translate as literally as possible while maintaining grammatical correctness\n- Preserve the original sentence structure when feasible\n- Keep all names and terms in their original form\n- Do not add or remove information from the original\n- Do NOT add explanations or notes, only provide the translation\n\n{context}',
-      localized: 'You are a localization expert for anime subtitles. Translate and adapt the following lines to {targetLang}.\n\nGuidelines:\n- Adapt cultural references to equivalents the target audience will understand\n- Convert measurements, currencies, and cultural concepts appropriately\n- Rewrite jokes and wordplay to work in the target language\n- Make dialogue feel natural for the target culture\n- Preserve the overall story meaning and character relationships\n- Do NOT add explanations or notes, only provide the translation\n\n{context}',
-      formal: 'You are a professional subtitle translator. Translate the following lines to {targetLang} using formal language.\n\nGuidelines:\n- Use formal register and polite language\n- Avoid slang, contractions, and casual expressions\n- Maintain professional and respectful tone\n- Suitable for educational or professional contexts\n- Do NOT add explanations or notes, only provide the translation\n\n{context}',
-      casual: 'You are a subtitle translator specializing in casual dialogue. Translate to {targetLang}.\n\nGuidelines:\n- Use casual, conversational language\n- Include appropriate slang and colloquialisms\n- Use contractions and informal expressions\n- Match the relaxed tone of casual conversation\n- Do NOT add explanations or notes, only provide the translation\n\n{context}',
-      honorifics: 'You are an anime subtitle translator who preserves Japanese honorifics. Translate to {targetLang}.\n\nGuidelines:\n- Keep Japanese honorifics (-san, -kun, -chan, -sama, -sensei, -senpai, etc.)\n- Preserve name order (family name first if appropriate)\n- Keep certain untranslatable terms (onii-chan, kawaii, etc.) with context clues\n- Maintain the social relationship nuances through honorific usage\n- Translate the rest naturally and fluently\n- Do NOT add explanations or notes, only provide the translation\n\n{context}'
+      unified: 'You are a professional subtitle translator. Translate the following subtitle lines to {targetLang}.\n\nGuidelines:\n- Be faithful to the original meaning while producing natural, fluent translations that read like native dialogue in the target language\n- Adapt idioms, jokes, wordplay, and cultural references to their closest natural equivalent so the audience experiences the same intent and emotion\n- Preserve the tone, register, and emotional weight of each line — a formal character stays formal, a comedic line stays comedic, a tender moment stays tender\n- Keep character names in their original form unless a well-known localized version exists. Preserve Japanese honorifics (-san, -kun, -chan, -sama, -sensei, -senpai) and culturally specific terms that lack direct equivalents\n- Maintain subtitle readability: keep lines concise, preserve line breaks, and ensure the text can be read in the time it appears on screen\n- If context metadata is provided (characters, terminology, synopsis), use it to keep names, terms, and tone consistent across episodes\n- Do NOT add explanations, notes, or commentary — only the translated text\n\n{context}'
+    },
+    context: {
+      eyebrow: 'story context',
+      title: 'Context Extraction',
+      enable: 'Use during translation',
+      noProfile: 'No context profile extracted yet. Analyze a subtitle file to extract characters, terminology, and story context.',
+      extractFromMedia: 'Extract from media',
+      loadFromFile: 'Load from file',
+      saveToFile: 'Save to file',
+      edit: 'Edit',
+      hideEditor: 'Hide editor',
+      reextract: 'Re-extract',
+      clearConfirm: 'Clear context profile?',
+      extracting: 'Extracting context...',
+      addCharacter: 'Add character',
+      addTerm: 'Add term',
+      fields: {
+        title: 'Title',
+        characters: 'Characters',
+        locations: 'Locations',
+        terminology: 'Terminology',
+        tone: 'Tone notes',
+        plot: 'Plot summary',
+        customInstructions: 'Custom instructions',
+        verifiedMatch: 'Verified match (AniList)'
+      },
+      placeholders: {
+        title: 'Series or episode title',
+        name: 'Character name',
+        role: 'Role (e.g. protagonist, mentor)',
+        description: 'Description / personality notes',
+        tone: 'Overall tone and speech style notes',
+        plot: 'Brief plot summary',
+        sourceTerm: 'Source term',
+        translatedTerm: 'Translated term',
+        customInstructions: 'Special instructions for extraction and translation'
+      },
+      extractPromptTitle: 'Extract Context',
+      extractPromptDescription: 'Analyze the first selected file to extract characters, terminology, and story context for consistent translations.',
+      extractPromptPlaceholder: 'Additional instructions for context extraction (optional)...',
+      extractPromptConfirm: 'Extract',
+      savedToFile: 'Context profile saved to {path}',
+      loadedFromFile: 'Context profile loaded',
+      profileCleared: 'Context profile cleared',
+      extractionFailed: 'Context extraction failed: {error}'
     }
   },
   'pt-BR': {
@@ -307,8 +339,8 @@ const messages = {
       autoDetect: 'Detectar automaticamente',
       targetLanguage: 'Idioma de destino',
       selectTargetLanguage: 'Selecione o idioma de destino',
-      translationStyle: 'Estilo de tradução',
-      systemPromptPreview: 'Prévia do prompt do sistema',
+      systemPromptPreview: 'Prompt do Sistema',
+      customSystemPromptHint: 'Deixe vazio para usar o prompt padrão. Digite seu próprio texto para substituí-lo completamente.',
       outputDirectory: 'Diretório de saída',
       sameAsInput: 'Mesmo da entrada',
       outputFormat: 'Formato de saída',
@@ -334,14 +366,6 @@ const messages = {
       bearerToken: 'Token Bearer do plano de tokens MiniMax',
       optional: '(opcional)',
       apiKeyPlaceholder: 'Chave da API'
-    },
-    styles: {
-      natural: 'Natural e fluente',
-      literal: 'Tradução literal',
-      localized: 'Localizada (adaptação cultural)',
-      formal: 'Formal',
-      casual: 'Casual',
-      honorifics: 'Honoríficos preservados'
     },
     formats: {
       auto: 'Detectar automaticamente (igualar faixa de origem)',
@@ -432,12 +456,52 @@ const messages = {
       sourceLanguage: 'Idioma de origem: {language}',
       detectSourceLanguage: 'Detecte o idioma de origem automaticamente.',
       fallbackSystemPrompt: 'Você é um tradutor profissional de legendas. Traduza as seguintes linhas de legenda para {targetLanguage}. Mantenha traduções naturais e contextualmente adequadas para diálogos de anime.',
-      natural: 'Você é um tradutor especialista em legendas de anime. Traduza as seguintes linhas de legenda para {targetLang}.\n\nDiretrizes:\n- Forneça traduções naturais e fluentes que soem como fala nativa\n- Preserve o tom emocional e a intenção do diálogo original\n- Adapte expressões idiomáticas para o equivalente natural mais próximo\n- Mantenha nomes de personagens na forma original, a menos que exista uma versão localizada conhecida\n- Preserve um ritmo adequado para leitura em legenda\n- NÃO adicione explicações ou notas, forneça apenas a tradução\n\n{context}',
-      literal: 'Você é um tradutor preciso de legendas. Traduza as seguintes linhas de legenda para {targetLang}.\n\nDiretrizes:\n- Traduza da forma mais literal possível, mantendo correção gramatical\n- Preserve a estrutura da frase original quando viável\n- Mantenha todos os nomes e termos na forma original\n- Não adicione nem remova informações do original\n- NÃO adicione explicações ou notas, forneça apenas a tradução\n\n{context}',
-      localized: 'Você é um especialista em localização para legendas de anime. Traduza e adapte as seguintes linhas para {targetLang}.\n\nDiretrizes:\n- Adapte referências culturais para equivalentes compreensíveis pelo público-alvo\n- Converta medidas, moedas e conceitos culturais apropriadamente\n- Reescreva piadas e jogos de palavras para funcionarem no idioma de destino\n- Faça o diálogo soar natural para a cultura de destino\n- Preserve o significado geral da história e as relações entre personagens\n- NÃO adicione explicações ou notas, forneça apenas a tradução\n\n{context}',
-      formal: 'Você é um tradutor profissional de legendas. Traduza as seguintes linhas para {targetLang} usando linguagem formal.\n\nDiretrizes:\n- Use registro formal e linguagem polida\n- Evite gírias, contrações e expressões casuais\n- Mantenha um tom profissional e respeitoso\n- Adequado para contextos educacionais ou profissionais\n- NÃO adicione explicações ou notas, forneça apenas a tradução\n\n{context}',
-      casual: 'Você é um tradutor de legendas especializado em diálogos casuais. Traduza para {targetLang}.\n\nDiretrizes:\n- Use linguagem casual e conversacional\n- Inclua gírias e coloquialismos apropriados\n- Use expressões informais\n- Acompanhe o tom descontraído de uma conversa casual\n- NÃO adicione explicações ou notas, forneça apenas a tradução\n\n{context}',
-      honorifics: 'Você é um tradutor de legendas de anime que preserva honoríficos japoneses. Traduza para {targetLang}.\n\nDiretrizes:\n- Mantenha honoríficos japoneses (-san, -kun, -chan, -sama, -sensei, -senpai etc.)\n- Preserve a ordem dos nomes (sobrenome primeiro, quando apropriado)\n- Mantenha certos termos intraduzíveis (onii-chan, kawaii etc.) com pistas de contexto\n- Preserve as nuances de relação social por meio dos honoríficos\n- Traduza o restante de forma natural e fluente\n- NÃO adicione explicações ou notas, forneça apenas a tradução\n\n{context}'
+      unified: 'Você é um tradutor profissional de legendas. Traduza as seguintes linhas de legenda para {targetLang}.\n\nDiretrizes:\n- Seja fiel ao significado original, produzindo traduções naturais e fluentes que leiam como diálogo nativo no idioma de destino\n- Adapte expressões idiomáticas, piadas, jogos de palavras e referências culturais para o equivalente natural mais próximo, para que o público experiência a mesma intenção e emoção\n- Preserve o tom, o registro e o peso emocional de cada linha — um personagem formal permanece formal, uma linha cômica permanece cômica, um momento terno permanece terno\n- Mantenha nomes de personagens na forma original, a menos que exista uma versão localizada conhecida. Preserve honoríficos japoneses (-san, -kun, -chan, -sama, -sensei, -senpai) e termos culturalmente específicos sem equivalentes diretos\n- Mantenha a legibilidade da legenda: mantenha as linhas concisas, preserve quebras de linha e garanta que o texto possa ser lido no tempo em que aparece na tela\n- Se metadados de contexto forem fornecidos (personagens, terminologia, sinopse), use-os para manter nomes, termos e tom consistentes entre episódios\n- NÃO adicione explicações, notas ou comentários — apenas o texto traduzido\n\n{context}'
+    },
+    context: {
+      eyebrow: 'contexto da história',
+      title: 'Extração de Contexto',
+      enable: 'Usar na tradução',
+      noProfile: 'Nenhum perfil de contexto extraído ainda. Analise um arquivo de legenda para extrair personagens, terminologia e contexto da história.',
+      extractFromMedia: 'Extrair da mídia',
+      loadFromFile: 'Carregar de arquivo',
+      saveToFile: 'Salvar em arquivo',
+      edit: 'Editar',
+      hideEditor: 'Ocultar editor',
+      reextract: 'Reextrair',
+      clearConfirm: 'Limpar perfil de contexto?',
+      extracting: 'Extraindo contexto...',
+      addCharacter: 'Adicionar personagem',
+      addTerm: 'Adicionar termo',
+      fields: {
+        title: 'Título',
+        characters: 'Personagens',
+        locations: 'Locais',
+        terminology: 'Terminologia',
+        tone: 'Notas de tom',
+        plot: 'Resumo da trama',
+        customInstructions: 'Instruções personalizadas',
+        verifiedMatch: 'Correspondência verificada (AniList)'
+      },
+      placeholders: {
+        title: 'Título da série ou episódio',
+        name: 'Nome do personagem',
+        role: 'Papel (ex.: protagonista, mentor)',
+        description: 'Descrição / notas de personalidade',
+        tone: 'Notas gerais de tom e estilo de fala',
+        plot: 'Resumo breve da trama',
+        sourceTerm: 'Termo de origem',
+        translatedTerm: 'Termo traduzido',
+        customInstructions: 'Instruções especiais para extração e tradução'
+      },
+      extractPromptTitle: 'Extrair Contexto',
+      extractPromptDescription: 'Analise o primeiro arquivo selecionado para extrair personagens, terminologia e contexto da história para traduções consistentes.',
+      extractPromptPlaceholder: 'Instruções adicionais para a extração de contexto (opcional)...',
+      extractPromptConfirm: 'Extrair',
+      savedToFile: 'Perfil de contexto salvo em {path}',
+      loadedFromFile: 'Perfil de contexto carregado',
+      profileCleared: 'Perfil de contexto limpo',
+      extractionFailed: 'Falha na extração de contexto: {error}'
     }
   }
 }

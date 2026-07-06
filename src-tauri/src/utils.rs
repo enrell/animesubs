@@ -328,52 +328,37 @@ pub fn is_music_or_karaoke_line(original_text: &str, clean_text: &str) -> bool {
         || ((is_very_short || mostly_short) && looks_like_romaji && repeating_tokens)
 }
 
-pub fn build_translation_prompt(style: &str, source_lang: &str, target_lang: &str) -> String {
-    let base_instruction = format!(
-        "You are a professional subtitle translator. Translate from {} to {}.",
-        source_lang, target_lang
-    );
-
-    let style_instruction = match style {
-        "natural" => "Translate naturally, prioritizing how native speakers \
-            actually talk. Adapt idioms, jokes, and cultural references to \
-            feel native in the target language while preserving the original \
-            meaning and tone.",
-        "literal" => "Translate as literally as possible while still being \
-            grammatically correct. Preserve the original sentence structure \
-            and word choices where feasible.",
-        "localized" => "Fully localize the content. Adapt cultural references, \
-            names, jokes, and idioms to equivalents that work in the target \
-            culture. The goal is for the translation to feel like it was \
-            originally written in the target language.",
-        "formal" => "Use formal, polite language appropriate for professional \
-            or official contexts. Avoid slang, contractions, and casual \
-            expressions.",
-        "casual" => "Use casual, conversational language. Feel free to use \
-            contractions, common expressions, and a friendly tone.",
-        "honorifics" => "Preserve Japanese honorifics (san, kun, chan, sama, \
-            sensei, senpai) and cultural terms that don't have direct \
-            equivalents. Add brief context in parentheses if needed for \
-            clarity.",
-        _ => "Translate naturally, balancing accuracy with readability.",
-    };
-
+pub fn build_translation_prompt(_style: &str, source_lang: &str, target_lang: &str) -> String {
     format!(
-        r#"{}
+        r#"You are a professional subtitle translator. Translate from {} to {}.
 
-Style: {}
+Guidelines:
+- Be faithful to the original meaning while producing natural, fluent \
+translations that read like native dialogue in the target language.
+- Adapt idioms, jokes, wordplay, and cultural references to their closest \
+natural equivalent so the audience experiences the same intent and emotion.
+- Preserve the tone, register, and emotional weight of each line — a formal \
+character stays formal, a comedic line stays comedic, a tender moment \
+stays tender.
+- Keep character names in their original form unless a well-known localized \
+version exists. Preserve Japanese honorifics (-san, -kun, -chan, -sama, \
+-sensei, -senpai) and culturally specific terms that lack direct equivalents.
+- Maintain subtitle readability: keep lines concise, preserve line breaks \
+(\n), and ensure the text can be read in the time it appears on screen.
+- If context metadata is provided (characters, terminology, synopsis), use \
+it to keep names, terms, and tone consistent across episodes.
+- Do NOT add explanations, notes, or commentary — only the translated text.
 
 CRITICAL RULES:
 1. You will receive a JSON array of subtitle lines with "id" and "text" fields
-2. Return ONLY a valid JSON object with "translations" array containing objects with "id" and "text"
-3. NEVER change line IDs - they must match exactly for correct subtitle replacement
-4. Keep translations concise - subtitles need to be readable quickly
-5. Preserve line breaks (\n) where present in the source
-6. Do not add explanations or notes - only the translated text
-7. If a line contains only sound effects like "(笑)" or "♪", \
-translate the sound description appropriately
-8. If a line is clearly music/lyrics (karaoke tags, music notes, \
-or ending/opening song cues), leave it unchanged
+2. Return ONLY a valid JSON object with "translations" array containing \
+objects with "id" and "text"
+3. NEVER change line IDs - they must match exactly for correct subtitle \
+replacement
+4. If a line is clearly music/lyrics (karaoke tags, music notes, or \
+opening/ending song cues), leave it unchanged
+5. If a line contains only sound effects like "(笑)" or "♪", translate \
+the sound description appropriately
 
 Example input:
 {{"lines": [{{"id": 0, "text": "Hello, how are you?"}}, {{"id": 1, "text": "I'm fine, thanks!"}}]}}
@@ -381,7 +366,7 @@ Example input:
 Example output:
 {{"translations": [{{"id": 0, "text": "Translated line 0"}}, \
 {{"id": 1, "text": "Translated line 1"}}]}}"#,
-        base_instruction, style_instruction
+        source_lang, target_lang
     )
 }
 
@@ -418,4 +403,207 @@ pub fn get_backup_dir(video_path: &str) -> PathBuf {
     let video_path = Path::new(video_path);
     let parent = video_path.parent().unwrap_or(Path::new("."));
     parent.join(".animesubs_backup")
+}
+
+pub fn format_context_profile(profile: &crate::models::ContextProfile) -> String {
+    let mut sections: Vec<String> = Vec::new();
+
+    if let Some(ref title) = profile.title {
+        if !title.trim().is_empty() {
+            sections.push(format!("Title: {}", title));
+        }
+    }
+
+    if !profile.characters.is_empty() {
+        let chars: Vec<String> = profile
+            .characters
+            .iter()
+            .map(|c| {
+                let verify_tag = if c.verified { " [verified]" } else { "" };
+                let mut parts = vec![format!(
+                    "  - {} ({}){}",
+                    c.name,
+                    c.role.as_deref().unwrap_or("unknown"),
+                    verify_tag
+                )];
+                if let Some(ref desc) = c.description {
+                    if !desc.trim().is_empty() {
+                        parts.push(format!("    Description: {}", desc));
+                    }
+                }
+                if let Some(ref rels) = c.relationships {
+                    if !rels.is_empty() {
+                        parts.push(format!("    Relationships: {}", rels.join(", ")));
+                    }
+                }
+                parts.join("\n")
+            })
+            .collect();
+        sections.push(format!("Characters:\n{}", chars.join("\n")));
+    }
+
+    if !profile.locations.is_empty() {
+        sections.push(format!("Locations: {}", profile.locations.join(", ")));
+    }
+
+    if let Some(ref summary) = profile.plot_summary {
+        if !summary.trim().is_empty() {
+            sections.push(format!("Plot summary: {}", summary));
+        }
+    }
+
+    if !profile.terminology.is_empty() {
+        let terms: Vec<String> = profile
+            .terminology
+            .iter()
+            .map(|t| {
+                let base = format!("  - {} → {}", t.source_term, t.translated_term);
+                if let Some(ref notes) = t.notes {
+                    if !notes.trim().is_empty() {
+                        format!("{} ({})", base, notes)
+                    } else {
+                        base
+                    }
+                } else {
+                    base
+                }
+            })
+            .collect();
+        sections.push(format!("Terminology (use these translations consistently):\n{}", terms.join("\n")));
+    }
+
+    if let Some(ref tone) = profile.tone_notes {
+        if !tone.trim().is_empty() {
+            sections.push(format!("Tone: {}", tone));
+        }
+    }
+
+    if let Some(ref custom) = profile.custom_instructions {
+        if !custom.trim().is_empty() {
+            sections.push(format!("Custom instructions: {}", custom));
+        }
+    }
+
+    if let Some(ref media) = profile.media_match {
+        let mut media_parts = vec![
+            format!("  Title: {}", media.title_display),
+            format!("  Provider: {} (ID: {})", media.provider, media.source_id),
+        ];
+        if let Some(ref t) = media.title_native {
+            media_parts.push(format!("  Native title: {}", t));
+        }
+        if let Some(ref t) = media.title_english {
+            media_parts.push(format!("  English title: {}", t));
+        }
+        if let Some(ref t) = media.title_romaji {
+            media_parts.push(format!("  Romaji title: {}", t));
+        }
+        if !media.genres.is_empty() {
+            media_parts.push(format!("  Genres: {}", media.genres.join(", ")));
+        }
+        if !media.tags.is_empty() {
+            media_parts.push(format!("  Tags: {}", media.tags.join(", ")));
+        }
+        if !media.aliases.is_empty() {
+            media_parts.push(format!("  Aliases: {}", media.aliases.join(", ")));
+        }
+        if let Some(ref synopsis) = media.synopsis {
+            if !synopsis.trim().is_empty() {
+                let preview: String = synopsis.chars().take(500).collect();
+                media_parts.push(format!("  Synopsis: {}", preview));
+            }
+        }
+        sections.push(format!(
+            "Verified media data:\n{}",
+            media_parts.join("\n")
+        ));
+    }
+
+    sections.join("\n\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{CharacterProfile, ContextProfile, MediaMatch, TerminologyEntry};
+
+    fn sample_profile() -> ContextProfile {
+        ContextProfile {
+            title: Some("Test Anime".to_string()),
+            characters: vec![CharacterProfile {
+                name: "Alice".to_string(),
+                role: Some("protagonist".to_string()),
+                description: Some("A brave girl".to_string()),
+                relationships: Some(vec!["Friend of Bob".to_string()]),
+                verified: true,
+            }],
+            locations: vec!["Tokyo".to_string(), "School".to_string()],
+            plot_summary: Some("A girl saves the world".to_string()),
+            terminology: vec![TerminologyEntry {
+                source_term: "Mahou".to_string(),
+                translated_term: "Magic".to_string(),
+                notes: Some("Used in spell names".to_string()),
+            }],
+            tone_notes: Some("Casual and energetic".to_string()),
+            custom_instructions: Some("Keep honorifics".to_string()),
+            source_path: None,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+            updated_at: "2025-01-01T00:00:00Z".to_string(),
+            media_match: Some(MediaMatch {
+                provider: "AniList".to_string(),
+                source_id: "12345".to_string(),
+                title_display: "Test Anime".to_string(),
+                title_native: Some("テストアニメ".to_string()),
+                title_english: Some("Test Anime".to_string()),
+                title_romaji: Some("Tesuto Anime".to_string()),
+                synopsis: Some("A test synopsis.".to_string()),
+                genres: vec!["Action".to_string(), "Fantasy".to_string()],
+                tags: vec![],
+                aliases: vec![],
+                format: Some("TV".to_string()),
+                episodes: Some(12),
+                season: Some("spring".to_string()),
+                season_year: Some(2025),
+            }),
+        }
+    }
+
+    #[test]
+    fn format_context_profile_includes_all_sections() {
+        let formatted = format_context_profile(&sample_profile());
+
+        assert!(formatted.contains("Title: Test Anime"));
+        assert!(formatted.contains("Alice (protagonist) [verified]"));
+        assert!(formatted.contains("A brave girl"));
+        assert!(formatted.contains("Friend of Bob"));
+        assert!(formatted.contains("Locations: Tokyo, School"));
+        assert!(formatted.contains("Plot summary: A girl saves the world"));
+        assert!(formatted.contains("Mahou → Magic"));
+        assert!(formatted.contains("Used in spell names"));
+        assert!(formatted.contains("Tone: Casual and energetic"));
+        assert!(formatted.contains("Custom instructions: Keep honorifics"));
+        assert!(formatted.contains("Verified media data:"));
+        assert!(formatted.contains("AniList (ID: 12345)"));
+        assert!(formatted.contains("Genres: Action, Fantasy"));
+    }
+
+    #[test]
+    fn format_context_profile_skips_empty_sections() {
+        let profile = ContextProfile {
+            title: None,
+            characters: vec![],
+            locations: vec![],
+            plot_summary: None,
+            terminology: vec![],
+            tone_notes: None,
+            custom_instructions: None,
+            source_path: None,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+            updated_at: "2025-01-01T00:00:00Z".to_string(),
+            media_match: None,
+        };
+
+        let formatted = format_context_profile(&profile);
+        assert!(formatted.is_empty());
+    }
 }

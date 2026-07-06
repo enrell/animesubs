@@ -1,6 +1,9 @@
+pub mod anime_tools;
 pub mod context;
+pub mod context_extraction;
 
 pub use context::{call_llm_api_with_context, generate_compaction_summary};
+pub use context_extraction::extract_context;
 
 use crate::models::{LLMConfig, TranslatedLine, TranslationLine, TranslationResponse};
 use crate::utils::{build_translation_prompt, clean_json_response};
@@ -51,7 +54,11 @@ fn build_provider_request(
     source_lang: &str,
     target_lang: &str,
 ) -> Result<ProviderRequest, String> {
-    let system_prompt = build_translation_prompt(&config.system_prompt, source_lang, target_lang);
+    let system_prompt = if config.system_prompt.trim().is_empty() {
+        build_translation_prompt(&config.system_prompt, source_lang, target_lang)
+    } else {
+        config.system_prompt.clone()
+    };
     let user_content = serde_json::json!({ "lines": lines });
     let provider = config.provider.trim().to_ascii_lowercase();
     let is_gemini_openai_compat = provider == "gemini" && config.endpoint.contains("/openai");
@@ -312,7 +319,7 @@ mod tests {
             api_key: "test-key".to_string(),
             endpoint,
             model: "test-model".to_string(),
-            system_prompt: "natural".to_string(),
+            system_prompt: String::new(),
         }
     }
 
