@@ -15,8 +15,24 @@ import type {
   TranslationJobProgress
 } from '../types/domain'
 import type { TranslationOptions } from './useTranslationOptions'
+import { useActivityLog } from './useActivityLog'
 
 type TranslateFn = (key: string, named?: Record<string, unknown>) => string
+
+export interface FileOutcome {
+  status: 'done' | 'failed'
+  detail?: string
+  embedded?: boolean
+}
+
+export type TranslationPhase = 'extract' | 'translate' | 'write' | 'other'
+
+const classifyPhase = (rawStatus: string): TranslationPhase => {
+  if (/Extracting|Parsing/.test(rawStatus)) return 'extract'
+  if (/Translating/.test(rawStatus)) return 'translate'
+  if (/Saving|Embedding/.test(rawStatus)) return 'write'
+  return 'other'
+}
 
 const validateApiConnection = async (
   settings: Settings,
@@ -90,11 +106,18 @@ export const useTranslationJob = ({
   contextProfile,
   contextEnabled
 }: UseTranslationJobParams) => {
+  const { log } = useActivityLog()
+
   const isTranslating = ref(false)
   const translationProgress = ref(0)
   const currentStatus = ref('')
   const estimatedTime = ref('')
   const currentFileIndex = ref(0)
+  const batchPaths = ref<string[]>([])
+  const fileOutcomes = ref<Record<string, FileOutcome>>({})
+  const activeFilePhase = ref<TranslationPhase>('other')
+  const activeFileLines = ref<{ done: number; total: number } | null>(null)
+
   let queuedProgress: number | null = null
   let queuedStatus: string | null = null
   let progressFrame: number | null = null
@@ -137,7 +160,27 @@ export const useTranslationJob = ({
     setProgress(0)
     currentStatus.value = ''
     estimatedTime.value = ''
+    activeFilePhase.value = 'other'
+    activeFileLines.value = null
   }
+
+  const clearOutcome = (path: string) => {
+    const { [path]: _removed, ...rest } = fileOutcomes.value
+    fileOutcomes.value = rest
+  }
+
+  const clearAllOutcomes = () => {
+    fileOutcomes.value = {}
+  }
+
+  const activeFilePath = computed(() =>
+    isTranslating.value ? batchPaths.value[currentFileIndex.value] ?? null : null
+  )
+
+  const activeFileName = computed(() => {
+    const path = activeFilePath.value
+    return path ? path.split('/').pop() || path : ''
+  })
 
   const canStartTranslation = computed(() => {
     const settings = cachedSettings.value
@@ -147,7 +190,7 @@ export const useTranslationJob = ({
     return hasApiConfig && hasFiles && filesReady && ffmpegStatus.value?.success
   })
 
-  const startTranslation = async () => {
+  const startTranslation = async (paths?: string[]) => {
     if (!canStartTranslation.value) {
       if (!ffmpegStatus.value?.success) {
         showSettings.value = true
@@ -163,26 +206,41 @@ export const useTranslationJob = ({
     if (!settings) return
 
     currentStatus.value = t('status.validatingApi')
+    log(t('status.validatingApi'))
     const validation = await validateApiConnection(settings, t)
     if (!validation.valid) {
       currentStatus.value = validation.error || t('status.apiValidationFailed')
+      log(currentStatus.value, 'error')
       return
     }
 
+    const pathFilter = paths ? new Set(paths) : null
     const filesToProcess = selectedFiles.value.filter(
       f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0
+        && (!pathFilter || pathFilter.has(f.path))
     )
+    if (filesToProcess.length === 0) return
+
     const videoPaths = filesToProcess.map(file => file.path)
+    for (const path of videoPaths) {
+      clearOutcome(path)
+    }
+
     const systemPrompt = settings.customSystemPrompt?.trim() || ''
 
     isTranslating.value = true
+    batchPaths.value = videoPaths
     setProgress(0)
     currentFileIndex.value = 0
+    activeFileLines.value = null
+    activeFilePhase.value = 'other'
+    log(t('log.jobStarted', { count: videoPaths.length }))
     const latestJobProgress = ref<TranslationJobProgress | null>(null)
 
     const unlistenProgress = await listen<TranslationJobProgress>('translation-job-progress', (event) => {
       latestJobProgress.value = event.payload
       currentFileIndex.value = Math.max(0, event.payload.currentFile - 1)
+      activeFilePhase.value = classifyPhase(event.payload.status || '')
       queueProgressUpdate(
         event.payload.progress,
         localizeBackendMessage(event.payload.status, t)
@@ -192,6 +250,11 @@ export const useTranslationJob = ({
       const jobProgress = latestJobProgress.value
       if (!jobProgress?.totalFiles) return
 
+      activeFileLines.value = {
+        done: event.payload.lines_translated,
+        total: event.payload.total_lines
+      }
+
       const chunkRatio = event.payload.total_chunks > 0
         ? event.payload.current_chunk / event.payload.total_chunks
         : 0
@@ -200,11 +263,11 @@ export const useTranslationJob = ({
       queueProgressUpdate(
         fileBase + ((0.2 + (0.6 * chunkRatio)) * fileSpan),
         event.payload.status
-        ? localizeBackendMessage(event.payload.status, t)
-        : t('status.translatingLines', {
-          translated: event.payload.lines_translated,
-          total: event.payload.total_lines
-        })
+          ? localizeBackendMessage(event.payload.status, t)
+          : t('status.translatingLines', {
+            translated: event.payload.lines_translated,
+            total: event.payload.total_lines
+          })
       )
     })
 
@@ -235,27 +298,58 @@ export const useTranslationJob = ({
 
       flushProgressUpdate()
       setProgress(100)
+
+      const succeededPaths = new Set(result.outputs.map(o => o.videoPath))
+      const outcomes: Record<string, FileOutcome> = { ...fileOutcomes.value }
+      for (const output of result.outputs) {
+        outcomes[output.videoPath] = { status: 'done', embedded: output.embedded }
+        const name = output.videoPath.split('/').pop() || output.videoPath
+        log(t('log.fileDone', { file: name }), 'success')
+      }
+      for (const path of videoPaths) {
+        if (succeededPaths.has(path)) continue
+        const name = path.split('/').pop() || path
+        const failure = result.failures.find(f => f.includes(name))
+        const reason = failure
+          ? localizeBackendMessage(failure.replace(/^Error in [^:]+:\s*/, ''), t)
+          : t('status.unknownError')
+        outcomes[path] = { status: 'failed', detail: reason }
+        log(t('log.fileFailed', { file: name, reason }), 'error')
+      }
+      fileOutcomes.value = outcomes
+
       if (result.failures.length === 0) {
         currentStatus.value = t('status.translationComplete')
+        log(currentStatus.value, 'success')
       } else if (result.completedFiles === 0) {
         currentStatus.value = t('status.translationFailed', {
           failure: localizeBackendMessage(result.failures[0], t)
         })
+        log(currentStatus.value, 'error')
       } else {
         currentStatus.value = t('status.translationFinishedWithErrors', {
           completed: result.completedFiles,
           total: result.totalFiles,
           failure: localizeBackendMessage(result.failures[0], t)
         })
+        log(currentStatus.value, 'warning')
       }
     } catch (e) {
       console.error('Translation error:', e)
       currentStatus.value = t('status.error', { error: e })
+      log(currentStatus.value, 'error')
     } finally {
       unlistenProgress()
       unlistenBatchProgress()
       isTranslating.value = false
+      activeFileLines.value = null
+      activeFilePhase.value = 'other'
     }
+  }
+
+  const retryFailures = async (paths: string[]) => {
+    if (paths.length === 0 || isTranslating.value) return
+    await startTranslation(paths)
   }
 
   return {
@@ -264,9 +358,18 @@ export const useTranslationJob = ({
     currentStatus,
     estimatedTime,
     currentFileIndex,
+    batchPaths,
+    fileOutcomes,
+    activeFilePath,
+    activeFileName,
+    activeFilePhase,
+    activeFileLines,
     canStartTranslation,
     setProgress,
     resetProgress,
-    startTranslation
+    clearOutcome,
+    clearAllOutcomes,
+    startTranslation,
+    retryFailures
   }
 }

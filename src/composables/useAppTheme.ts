@@ -1,76 +1,63 @@
-import { computed, ref } from 'vue'
-import { darkTheme, type GlobalThemeOverrides } from 'naive-ui'
+import { computed, ref, watch } from 'vue'
+import { darkTheme } from 'naive-ui'
+import { themes, themeList, type ThemeName } from '../themes/themes'
 
-const THEME_KEY = 'animesubs-theme'
+const THEME_KEY = 'animesubs-theme-v2'
 
-const getInitialTheme = () => {
+const isValidTheme = (value: string | null): value is ThemeName =>
+  value !== null && value in themes
+
+const getInitialTheme = (): ThemeName => {
   try {
     const saved = localStorage.getItem(THEME_KEY)
-    if (saved === 'dark' || saved === 'light') {
-      return saved === 'dark'
-    }
+    if (isValidTheme(saved)) return saved
   } catch (e) {
     console.error('Failed to read theme preference:', e)
   }
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'kitsune' : 'hanami'
 }
 
 export const useAppTheme = () => {
-  const isDark = ref(getInitialTheme())
-  const theme = computed(() => isDark.value ? darkTheme : null)
+  const themeName = ref<ThemeName>(getInitialTheme())
+  const definition = computed(() => themes[themeName.value])
+  const isDark = computed(() => definition.value.mode === 'dark')
+  const theme = computed(() => (isDark.value ? darkTheme : null))
+  const themeOverrides = computed(() => definition.value.naive)
 
-  const themeOverrides = computed<GlobalThemeOverrides>(() => ({
-    common: {
-      primaryColor: '#ffffff',
-      primaryColorHover: '#e0e0e0',
-      primaryColorPressed: '#bdbdbd',
-      primaryColorSuppl: '#ffffff',
-      borderRadius: '0px',
-      ...(isDark.value ? {
-        bodyColor: '#0a0a0a',
-        cardColor: '#0a0a0a',
-        modalColor: '#0a0a0a',
-        popoverColor: '#141414',
-        tableColor: '#0a0a0a',
-        inputColor: '#0a0a0a',
-        actionColor: '#141414',
-        hoverColor: 'rgba(255, 255, 255, 0.06)',
-        borderColor: '#262626',
-        dividerColor: '#1a1a1a',
-        textColor1: '#ffffff',
-        textColor2: '#888888',
-        textColor3: '#555555'
-      } : {
-        bodyColor: '#ffffff',
-        cardColor: '#ffffff',
-        modalColor: '#ffffff',
-        popoverColor: '#ffffff',
-        tableColor: '#ffffff',
-        inputColor: '#ffffff',
-        actionColor: '#f5f5f5',
-        hoverColor: 'rgba(0, 0, 0, 0.04)',
-        borderColor: '#000000',
-        dividerColor: '#000000',
-        textColor1: '#000000',
-        textColor2: '#666666',
-        textColor3: '#999999'
-      })
+  const themeOptions = computed(() =>
+    themeList.map(t => ({ label: t.labelKey, value: t.name, mode: t.mode }))
+  )
+
+  const applyTheme = () => {
+    const root = document.documentElement
+    const def = definition.value
+    for (const [key, value] of Object.entries(def.tokens)) {
+      root.style.setProperty(key, value)
     }
-  }))
+    root.style.setProperty('--theme-bg-image', `url("${def.background}")`)
+    root.style.setProperty('--theme-bg-opacity', def.backgroundOpacity)
+    root.dataset.theme = def.name
+    root.classList.toggle('theme-dark', isDark.value)
+    root.classList.toggle('theme-light', !isDark.value)
+  }
 
-  const toggleTheme = () => {
-    isDark.value = !isDark.value
+  const setTheme = (name: ThemeName) => {
+    themeName.value = name
     try {
-      localStorage.setItem(THEME_KEY, isDark.value ? 'dark' : 'light')
+      localStorage.setItem(THEME_KEY, name)
     } catch (e) {
       console.error('Failed to save theme preference:', e)
     }
   }
 
+  watch(themeName, applyTheme, { immediate: true })
+
   return {
+    themeName,
     isDark,
     theme,
     themeOverrides,
-    toggleTheme
+    themeOptions,
+    setTheme
   }
 }

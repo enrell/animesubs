@@ -528,31 +528,26 @@ defineExpose({ settings, getSystemPrompt })
 
 <style scoped>
 .settings-modal {
-  font-family: var(--font-ui, -apple-system, "Segoe UI", system-ui, sans-serif);
+  font-family: var(--font-sans);
 }
 
 .settings-modal.n-card,
 .settings-modal :deep(.n-card) {
-  border-radius: 0;
-  background: var(--bg-card, #0a0a0a);
-  box-shadow: none;
-  border: 2px solid var(--border, #ffffff);
-  animation: none !important;
-  transition: none !important;
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-pop);
 }
 
 .settings-modal :deep(.n-card-header) {
-  border-bottom: 2px solid var(--border, #ffffff);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-modal :deep(.n-card-header__main) {
-  color: var(--text-primary, #ffffff);
-  font-family: "Arial Black", "Helvetica Neue", sans-serif;
-  font-size: 18px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-  line-height: 1;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .settings-modal :deep(.n-card__content) {
@@ -565,8 +560,7 @@ defineExpose({ settings, getSystemPrompt })
 }
 
 .settings-modal :deep(.n-card__footer) {
-  border-top: 2px solid var(--border, #ffffff);
-  background: var(--bg-elevated, #141414);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .settings-stack {
@@ -591,78 +585,19 @@ defineExpose({ settings, getSystemPrompt })
   gap: 8px;
 }
 
-.settings-tabs :deep(.n-tabs-tab__label),
-.settings-modal :deep(.n-form-item-label__text),
-.settings-modal :deep(.n-collapse-item__header-main) {
-  color: var(--text-secondary, #888888) !important;
-  font-size: 12px !important;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-family: "Courier New", monospace;
-}
-
-.settings-tabs :deep(.n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label) {
-  color: var(--text-primary, #ffffff) !important;
+.settings-tabs :deep(.n-tabs-tab__label) {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .settings-tabs :deep(.n-tabs-bar) {
-  background: var(--text-primary, #ffffff);
+  background: var(--accent);
 }
 
-.settings-modal :deep(.n-button) {
-  border-radius: 0 !important;
-  font-weight: 700;
-  transition: all 80ms ease !important;
-}
-
-.settings-modal :deep(.n-button:active) {
-  transform: translate(2px, 2px);
-}
-
-.settings-modal :deep(.n-button--primary-type) {
-  color: var(--bg-base, #0a0a0a) !important;
-  font-weight: 900;
-  background: var(--accent, #ffffff) !important;
-  border: 2px solid var(--accent, #ffffff) !important;
-  box-shadow: none;
-}
-
-.settings-modal :deep(.n-button--primary-type:hover) {
-  background: var(--accent-hover, #cccccc) !important;
-  border-color: var(--accent-hover, #cccccc) !important;
-}
-
-.settings-modal :deep(.n-base-selection),
-.settings-modal :deep(.n-input),
-.settings-modal :deep(.n-input-number),
-.settings-modal :deep(.n-input-number .n-input) {
-  border-radius: 0 !important;
-  background: var(--bg-input, #0a0a0a) !important;
-  border: 1px solid var(--border-thin, #333333) !important;
-}
-
-.settings-modal :deep(.n-base-selection .n-base-selection-label),
-.settings-modal :deep(.n-input-wrapper),
-.settings-modal :deep(.n-input__textarea-el),
-.settings-modal :deep(.n-input__input-el) {
-  color: var(--text-primary, #ffffff) !important;
-  font-family: "Helvetica Neue", sans-serif !important;
-}
-
-.settings-modal :deep(.n-collapse),
-.settings-modal :deep(.n-collapse-item) {
-  border-color: var(--border-thin, #333333);
-}
-
-.settings-modal :deep(.n-checkbox__label),
-.settings-modal :deep(.n-text) {
-  color: var(--text-secondary, #888888) !important;
-  font-family: "Helvetica Neue", sans-serif;
-}
-
-.settings-modal :deep(.n-divider) {
-  --n-color: var(--border-thin, #333333);
+.settings-modal :deep(.n-form-item-label__text),
+.settings-modal :deep(.n-collapse-item__header-main) {
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 @media (max-width: 720px) {

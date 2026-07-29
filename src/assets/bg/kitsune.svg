@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#e8a95c" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#e8a95c" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#e8a95c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#241a14" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#171310" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#171310" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+
+  <!-- stars -->
+  <g fill="#f3ece2">
+    <circle cx="120" cy="90" r="1.6" opacity="0.7"/>
+    <circle cx="300" cy="180" r="1.2" opacity="0.45"/>
+    <circle cx="470" cy="70" r="1.8" opacity="0.6"/>
+    <circle cx="640" cy="150" r="1.1" opacity="0.4"/>
+    <circle cx="760" cy="60" r="1.4" opacity="0.55"/>
+    <circle cx="920" cy="200" r="1.2" opacity="0.35"/>
+    <circle cx="1080" cy="90" r="1.7" opacity="0.6"/>
+    <circle cx="1330" cy="240" r="1.3" opacity="0.4"/>
+    <circle cx="1470" cy="120" r="1.5" opacity="0.5"/>
+    <circle cx="210" cy="300" r="1.1" opacity="0.3"/>
+    <circle cx="540" cy="260" r="1.3" opacity="0.35"/>
+    <circle cx="850" cy="330" r="1.1" opacity="0.28"/>
+    <circle cx="1250" cy="60" r="1.9" opacity="0.65"/>
+  </g>
+
+  <!-- moon -->
+  <circle cx="1180" cy="190" r="210" fill="url(#moonGlow)"/>
+  <circle cx="1180" cy="190" r="72" fill="#f0d9b0" opacity="0.9"/>
+  <circle cx="1156" cy="172" r="14" fill="#dcb98a" opacity="0.5"/>
+  <circle cx="1204" cy="212" r="9" fill="#dcb98a" opacity="0.4"/>
+
+  <!-- distant hills -->
+  <path d="M0 780 Q 260 690 520 760 T 1060 740 T 1600 770 V1000 H0 Z" fill="#100c09" opacity="0.85"/>
+  <path d="M0 860 Q 320 790 700 840 T 1600 830 V1000 H0 Z" fill="#0c0907" opacity="0.9"/>
+
+  <!-- torii gate silhouette -->
+  <g fill="#e4573d" opacity="0.5">
+    <rect x="1152" y="560" width="22" height="290" rx="4"/>
+    <rect x="1392" y="560" width="22" height="290" rx="4"/>
+    <path d="M1108 528 Q 1283 506 1458 528 L1458 556 Q 1283 534 1108 556 Z"/>
+    <rect x="1120" y="596" width="326" height="20" rx="4"/>
+    <rect x="1274" y="556" width="18" height="40"/>
+  </g>
+  <g fill="#0c0907" opacity="0.85">
+    <rect x="1152" y="800" width="22" height="50"/>
+    <rect x="1392" y="800" width="22" height="50"/>
+  </g>
+
+  <!-- stone lanterns -->
+  <g fill="#1d1610" opacity="0.95">
+    <path d="M980 830 l18 -22 h24 l18 22 z"/>
+    <rect x="996" y="830" width="28" height="26" rx="3"/>
+    <rect x="1004" y="856" width="12" height="44"/>
+    <rect x="988" y="900" width="44" height="10" rx="3"/>
+  </g>
+  <rect x="1000" y="834" width="20" height="18" rx="3" fill="#e39a2d" opacity="0.5"/>
+</svg>

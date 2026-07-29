@@ -366,13 +366,11 @@ const addTerminology = () => {
 
 .context-header h4 {
   margin: 0;
-  font-family: "Arial Black", "Helvetica Neue", sans-serif;
   font-size: 14px;
-  font-weight: 900;
-  color: var(--text-primary, #ffffff);
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-  line-height: 1;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .context-actions {
@@ -390,10 +388,9 @@ const addTerminology = () => {
 
 .context-empty-hint {
   font-size: 13px;
-  color: var(--text-secondary, #888888);
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
-  font-family: "Courier New", monospace;
 }
 
 .context-content {
@@ -416,12 +413,11 @@ const addTerminology = () => {
 }
 
 .field-label {
-  font-family: "Courier New", monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted, #555555);
+  color: var(--text-muted);
 }
 
 .tag-list {
@@ -444,16 +440,16 @@ const addTerminology = () => {
 }
 
 .term-source {
-  color: var(--text-muted, #555555);
+  color: var(--text-muted);
 }
 
 .term-arrow {
-  color: var(--text-primary, #ffffff);
-  font-weight: 900;
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .term-translated {
-  color: var(--text-primary, #ffffff);
+  color: var(--text-primary);
   font-weight: 700;
 }
 
@@ -461,7 +457,7 @@ const addTerminology = () => {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--text-secondary, #888888);
+  color: var(--text-secondary);
 }
 
 .context-editor {
@@ -482,14 +478,14 @@ const addTerminology = () => {
 }
 
 .verified-tag {
-  border: 1px solid var(--text-primary, #ffffff) !important;
+  border: 1px solid var(--success) !important;
 }
 
 .media-match-field {
   padding: 12px;
-  border: 1px solid var(--border-thin, #333333);
-  border-radius: 0;
-  background: var(--bg-elevated, #141414);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
 }
 
 .media-match-info {
@@ -500,20 +496,16 @@ const addTerminology = () => {
 }
 
 .media-title {
-  font-family: "Arial Black", sans-serif;
-  font-weight: 900;
+  font-weight: 700;
   font-size: 14px;
-  color: var(--text-primary, #ffffff);
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .media-provider {
-  font-size: 10px;
-  color: var(--text-muted, #555555);
-  font-family: "Courier New", monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 .context-extracting {
@@ -521,8 +513,7 @@ const addTerminology = () => {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: var(--text-secondary, #888888);
-  font-family: "Courier New", monospace;
+  color: var(--text-secondary);
 }
 
 .checkbox-label-content {
@@ -533,12 +524,11 @@ const addTerminology = () => {
 }
 
 .eyebrow {
-  font-family: "Courier New", monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-muted, #555555);
+  color: var(--text-muted);
   margin: 0 0 4px 0;
 }
 </style>

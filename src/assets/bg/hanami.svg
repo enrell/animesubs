@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <radialGradient id="paperLight" cx="30%" cy="0%" r="90%">
+      <stop offset="0%" stop-color="#f7dfe4" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#faf4ee" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#faf4ee" stop-opacity="0"/>
+    </radialGradient>
+    <g id="blossom">
+      <circle cx="0" cy="-9" r="7" fill="#f2a7bd"/>
+      <circle cx="8.5" cy="-2.8" r="7" fill="#f2a7bd"/>
+      <circle cx="5.3" cy="7.3" r="7" fill="#f2a7bd"/>
+      <circle cx="-5.3" cy="7.3" r="7" fill="#f2a7bd"/>
+      <circle cx="-8.5" cy="-2.8" r="7" fill="#f2a7bd"/>
+      <circle cx="0" cy="0" r="3.4" fill="#d6406b"/>
+    </g>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#paperLight)"/>
+
+  <!-- sakura branch from top-left -->
+  <g fill="none" stroke="#5b3f3a" stroke-linecap="round">
+    <path d="M-40 -20 Q 180 60 330 190 T 620 380" stroke-width="16" opacity="0.9"/>
+    <path d="M200 110 Q 300 90 380 130" stroke-width="9" opacity="0.85"/>
+    <path d="M330 190 Q 420 200 480 260" stroke-width="8" opacity="0.85"/>
+    <path d="M120 44 Q 190 20 260 40" stroke-width="7" opacity="0.8"/>
+  </g>
+
+  <!-- blossom clusters on branch -->
+  <use href="#blossom" x="150" y="60" transform="rotate(12 150 60)"/>
+  <use href="#blossom" x="240" y="105" transform="rotate(-18 240 105) scale(1.15)"/>
+  <use href="#blossom" x="330" y="180" transform="rotate(24 330 180) scale(0.95)"/>
+  <use href="#blossom" x="390" y="130" transform="rotate(-8 390 130) scale(1.1)"/>
+  <use href="#blossom" x="470" y="250" transform="rotate(40 470 250)"/>
+  <use href="#blossom" x="560" y="330" transform="rotate(-30 560 330) scale(1.2)"/>
+  <use href="#blossom" x="620" y="390" transform="rotate(6 620 390) scale(0.9)"/>
+  <use href="#blossom" x="90" y="22" transform="rotate(-40 90 22) scale(0.9)"/>
+
+  <!-- falling petals -->
+  <g fill="#f2a7bd">
+    <ellipse cx="700" cy="300" rx="10" ry="6" transform="rotate(28 700 300)" opacity="0.8"/>
+    <ellipse cx="860" cy="180" rx="9" ry="5.5" transform="rotate(-20 860 180)" opacity="0.7"/>
+    <ellipse cx="1020" cy="380" rx="10" ry="6" transform="rotate(46 1020 380)" opacity="0.75"/>
+    <ellipse cx="1180" cy="260" rx="8" ry="5" transform="rotate(-36 1180 260)" opacity="0.6"/>
+    <ellipse cx="1350" cy="450" rx="10" ry="6" transform="rotate(18 1350 450)" opacity="0.7"/>
+    <ellipse cx="520" cy="520" rx="9" ry="5.5" transform="rotate(-52 520 520)" opacity="0.65"/>
+    <ellipse cx="780" cy="640" rx="10" ry="6" transform="rotate(64 780 640)" opacity="0.6"/>
+    <ellipse cx="1100" cy="600" rx="8" ry="5" transform="rotate(-14 1100 600)" opacity="0.55"/>
+    <ellipse cx="1420" cy="720" rx="9" ry="5.5" transform="rotate(38 1420 720)" opacity="0.5"/>
+    <ellipse cx="320" cy="700" rx="10" ry="6" transform="rotate(-28 320 700)" opacity="0.55"/>
+    <ellipse cx="940" cy="820" rx="9" ry="5.5" transform="rotate(24 940 820)" opacity="0.45"/>
+    <ellipse cx="600" cy="880" rx="8" ry="5" transform="rotate(-44 600 880)" opacity="0.4"/>
+  </g>
+
+  <!-- distant branch hint, bottom-right -->
+  <g fill="none" stroke="#c99aa4" stroke-linecap="round" opacity="0.5">
+    <path d="M1640 1080 Q 1450 940 1330 830 T 1180 690" stroke-width="12"/>
+    <path d="M1400 920 Q 1330 930 1270 900" stroke-width="7"/>
+  </g>
+  <use href="#blossom" x="1330" y="830" opacity="0.55"/>
+  <use href="#blossom" x="1210" y="710" opacity="0.5" transform="rotate(20 1210 710)"/>
+</svg>
