@@ -544,8 +544,11 @@ const primaryKind = computed<'translate' | 'retry' | 'busy' | 'setup' | 'hidden'
 })
 
 const footerReason = computed(() => {
-  if (primaryKind.value !== 'setup') return ''
-  return !providerReady.value ? t('footer.disabledProvider') : t('footer.disabledFfmpeg')
+  if (primaryKind.value === 'setup') {
+    return !providerReady.value ? t('footer.disabledProvider') : t('footer.disabledFfmpeg')
+  }
+  if (selectedFiles.value.length === 0) return t('footer.disabledAdd')
+  return ''
 })
 
 const canExtractContext = computed(() => {
