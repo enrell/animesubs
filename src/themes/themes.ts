@@ -1,8 +1,8 @@
 import type { GlobalThemeOverrides } from 'naive-ui'
-import kitsuneBg from '../assets/bg/kitsune.svg?url'
-import matsuriBg from '../assets/bg/matsuri.svg?url'
-import hanamiBg from '../assets/bg/hanami.svg?url'
-import matchaBg from '../assets/bg/matcha.svg?url'
+import kitsuneBg from '../assets/bg/kitsune.jpg?url'
+import matsuriBg from '../assets/bg/matsuri.jpg?url'
+import hanamiBg from '../assets/bg/hanami.jpg?url'
+import matchaBg from '../assets/bg/matcha.jpg?url'
 
 export type ThemeMode = 'dark' | 'light'
 
@@ -96,7 +96,7 @@ export const themes: Record<ThemeName, ThemeDefinition> = {
     mode: 'dark',
     labelKey: 'themes.kitsune',
     background: kitsuneBg,
-    backgroundOpacity: '0.55',
+    backgroundOpacity: '0.4',
     tokens: {
       ...sharedRadii,
       '--bg-base': '#171310',
@@ -150,7 +150,7 @@ export const themes: Record<ThemeName, ThemeDefinition> = {
     mode: 'dark',
     labelKey: 'themes.matsuri',
     background: matsuriBg,
-    backgroundOpacity: '0.55',
+    backgroundOpacity: '0.45',
     tokens: {
       ...sharedRadii,
       '--bg-base': '#191410',
@@ -204,7 +204,7 @@ export const themes: Record<ThemeName, ThemeDefinition> = {
     mode: 'light',
     labelKey: 'themes.hanami',
     background: hanamiBg,
-    backgroundOpacity: '0.7',
+    backgroundOpacity: '0.55',
     tokens: {
       ...sharedRadii,
       '--bg-base': '#faf4ee',
@@ -258,7 +258,7 @@ export const themes: Record<ThemeName, ThemeDefinition> = {
     mode: 'light',
     labelKey: 'themes.matcha',
     background: matchaBg,
-    backgroundOpacity: '0.65',
+    backgroundOpacity: '0.5',
     tokens: {
       ...sharedRadii,
       '--bg-base': '#f3f4eb',
