@@ -8,6 +8,7 @@ export interface Settings {
   provider: string
   apiEndpoint: string
   apiKey: string
+  tmdbApiKey: string
   selectedModel: string | null
   interfaceLanguage: InterfaceLocale
   hasSelectedInterfaceLanguage: boolean
@@ -28,6 +29,7 @@ export const defaultSettings: Settings = {
   provider: 'openai',
   apiEndpoint: 'https://api.openai.com/v1',
   apiKey: '',
+  tmdbApiKey: '',
   selectedModel: null,
   interfaceLanguage: defaultInterfaceLanguage,
   hasSelectedInterfaceLanguage: false,
@@ -43,7 +45,8 @@ export const defaultSettings: Settings = {
 
 export const settingsForStorage = (settings: Settings): Settings => ({
   ...settings,
-  apiKey: ''
+  apiKey: '',
+  tmdbApiKey: settings.tmdbApiKey || ''
 })
 
 export const normalizeSettings = (settings: Partial<Settings>): Settings => {

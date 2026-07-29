@@ -21,26 +21,40 @@ export const useAppTheme = () => {
 
   const themeOverrides = computed<GlobalThemeOverrides>(() => ({
     common: {
-      primaryColor: '#7ce8a0',
-      primaryColorHover: '#8fffb8',
-      primaryColorPressed: '#5ab878',
-      primaryColorSuppl: '#8088cc',
+      primaryColor: '#ffffff',
+      primaryColorHover: '#e0e0e0',
+      primaryColorPressed: '#bdbdbd',
+      primaryColorSuppl: '#ffffff',
       borderRadius: '0px',
       ...(isDark.value ? {
-        bodyColor: '#020205',
-        cardColor: '#0a0a18',
-        modalColor: '#0a0a18',
-        popoverColor: '#111128',
-        tableColor: '#0a0a18',
-        inputColor: '#020208',
-        actionColor: '#111128',
-        hoverColor: 'rgba(124, 232, 160, 0.10)',
-        borderColor: 'rgba(124, 232, 160, 0.16)',
-        dividerColor: 'rgba(124, 232, 160, 0.16)',
-        textColor1: '#8fffb8',
-        textColor2: '#7ce8a0',
-        textColor3: '#4a7a5c'
-      } : {})
+        bodyColor: '#0a0a0a',
+        cardColor: '#0a0a0a',
+        modalColor: '#0a0a0a',
+        popoverColor: '#141414',
+        tableColor: '#0a0a0a',
+        inputColor: '#0a0a0a',
+        actionColor: '#141414',
+        hoverColor: 'rgba(255, 255, 255, 0.06)',
+        borderColor: '#262626',
+        dividerColor: '#1a1a1a',
+        textColor1: '#ffffff',
+        textColor2: '#888888',
+        textColor3: '#555555'
+      } : {
+        bodyColor: '#ffffff',
+        cardColor: '#ffffff',
+        modalColor: '#ffffff',
+        popoverColor: '#ffffff',
+        tableColor: '#ffffff',
+        inputColor: '#ffffff',
+        actionColor: '#f5f5f5',
+        hoverColor: 'rgba(0, 0, 0, 0.04)',
+        borderColor: '#000000',
+        dividerColor: '#000000',
+        textColor1: '#000000',
+        textColor2: '#666666',
+        textColor3: '#999999'
+      })
     }
   }))
 

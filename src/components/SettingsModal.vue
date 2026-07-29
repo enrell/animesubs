@@ -3,11 +3,12 @@
     v-model:show="showModal"
     preset="card"
     class="settings-modal"
-    :style="{ width: 'min(860px, calc(100vw - 28px))' }"
+    :style="{ width: 'min(860px, calc(100vw - 28px))', height: '680px', maxHeight: '680px', display: 'flex', flexDirection: 'column' }"
     :title="t('settings.title')"
     :bordered="false"
     :auto-focus="false"
     :transition-name="''"
+    :show-icon="false"
     size="huge"
     :segmented="{ content: true, footer: 'soft' }"
   >
@@ -40,13 +41,23 @@
               clearable
             />
           </n-form-item>
-          
+
           <n-form-item v-if="settings.provider !== 'ollama'" :label="t('settings.apiKey')" label-placement="left">
             <n-input
               v-model:value="settings.apiKey"
               type="password"
               show-password-on="click"
               :placeholder="getApiKeyPlaceholder()"
+              clearable
+            />
+          </n-form-item>
+
+          <n-form-item :label="t('settings.tmdbApiKey')" label-placement="left">
+            <n-input
+              v-model:value="settings.tmdbApiKey"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('settings.optional')"
               clearable
             />
           </n-form-item>
@@ -117,11 +128,11 @@
           <n-collapse>
             <n-collapse-item :title="t('settings.systemPromptPreview')" name="prompt">
               <n-input
-                v-model:value="settings.customSystemPrompt"
+                :value="systemPromptModel"
+                @update:value="onSystemPromptChange"
                 type="textarea"
-                :rows="8"
-                :placeholder="getSystemPrompt()"
-                style="font-family: monospace; font-size: 12px;"
+                :rows="12"
+                style="font-family: var(--font-mono, monospace); font-size: 12px;"
               />
               <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block;">
                 {{ t('settings.customSystemPromptHint') }}
@@ -187,7 +198,7 @@
     </n-tabs>
 
     <template #footer>
-      <div class="settings-footer-actions">
+      <div class="settings-footer">
         <n-button @click="resetSettings">{{ t('settings.reset') }}</n-button>
         <n-button type="primary" @click="saveSettings">
           <template #icon>
@@ -238,7 +249,6 @@ import {
 } from '../config/settings'
 import {
   interfaceLanguageOptions,
-  setInterfaceLocale,
   translationLanguageKey
 } from '../i18n'
 
@@ -339,13 +349,32 @@ const getSystemPrompt = (): string => {
   const langName = languageOptions.value.find(l => l.value === settings.targetLanguage)?.label
     || settings.targetLanguage
   const context = settings.sourceLanguage
-    ? t('prompts.sourceLanguage', {
-      language: languageOptions.value.find(l => l.value === settings.sourceLanguage)?.label
-        || settings.sourceLanguage
-    })
-    : t('prompts.detectSourceLanguage')
+    ? `Source language: ${languageOptions.value.find(l => l.value === settings.sourceLanguage)?.label || settings.sourceLanguage}`
+    : 'Detect the source language automatically.'
 
-  return t('prompts.unified', { targetLang: langName, context })
+  return `You are a professional subtitle translator. Translate the following subtitle lines to ${langName}.
+
+Guidelines:
+- Be faithful to the original meaning while producing natural, fluent translations that read like native dialogue in the target language
+- Adapt idioms, jokes, wordplay, and cultural references to their closest natural equivalent so the audience experiences the same intent and emotion
+- Preserve the tone, register, and emotional weight of each line: a formal character stays formal, a comedic line stays comedic, a tender moment stays tender
+- Keep character names in their original form unless a well-known localized version exists. Preserve Japanese honorifics (-san, -kun, -chan, -sama, -sensei, -senpai) and culturally specific terms that lack direct equivalents
+- Maintain subtitle readability: keep lines concise, preserve line breaks, and ensure the text can be read in the time it appears on screen
+- If context metadata is provided (characters, terminology, synopsis), use it to keep names, terms, and tone consistent across episodes
+- Do NOT add explanations, notes, or commentary, only the translated text
+
+${context}`
+}
+
+const systemPromptModel = computed({
+  get: () => settings.customSystemPrompt || getSystemPrompt(),
+  set: (value: string) => {
+    settings.customSystemPrompt = value
+  }
+})
+
+const onSystemPromptChange = (value: string) => {
+  settings.customSystemPrompt = value
 }
 
 const getEndpointPlaceholder = (): string => {
@@ -384,46 +413,16 @@ const onProviderChange = async (provider: string) => {
       modelOptions.value = preset.models.map(m => ({ label: m, value: m }))
     }
   }
-  await loadProviderApiKey(provider)
-}
-
-const setPreset = async (provider: string) => {
-  settings.provider = provider
-  await onProviderChange(provider)
-  message.info(t('settings.configuredFor', {
-    provider: providerOptions.value.find(p => p.value === provider)?.label || provider
-  }))
-}
-
-// Load settings from localStorage on mount
-const loadSettings = async () => {
-  const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved)
-      Object.assign(settings, normalizeSettings({ ...parsed, apiKey: '' }))
-      // Load cached models for provider
-      const cachedModels = localStorage.getItem(`animesubs-models-${settings.provider}`)
-      if (cachedModels) {
-        modelOptions.value = JSON.parse(cachedModels)
-      }
-    } catch (e) {
-      console.error('Failed to load settings:', e)
-    }
+  if (provider !== 'ollama') {
+    await loadProviderApiKey(provider)
   }
-  await loadProviderApiKey(settings.provider)
 }
-
-onMounted(() => {
-  void loadSettings()
-})
 
 const fetchModels = async () => {
   if (!settings.apiEndpoint) {
     message.warning(t('settings.enterApiEndpointFirst'))
     return
   }
-
   if (providerRequiresApiKey(settings.provider) && !settings.apiKey) {
     message.warning(t('settings.enterApiKeyFirst'))
     return
@@ -431,59 +430,72 @@ const fetchModels = async () => {
 
   loadingModels.value = true
   try {
-    // Use Tauri backend to fetch models (bypasses CORS for local/custom APIs)
-    const models = await invokeFetchModels(
-      settings.apiEndpoint,
-      settings.apiKey,
-      settings.provider
-    )
-    modelOptions.value = models
-    localStorage.setItem(`animesubs-models-${settings.provider}`, JSON.stringify(models))
-    message.success(t('settings.loadedModels', { count: models.length }))
-  } catch (error) {
-    message.error(t('settings.failedToFetchModels', { error }))
-    // Fall back to preset models
-    const preset = providerPresets[settings.provider]
-    if (preset?.models.length) {
-      modelOptions.value = preset.models.map(m => ({ label: m, value: m }))
+    const models = await invokeFetchModels(settings.apiEndpoint, settings.apiKey)
+    modelOptions.value = models || []
+    if (models.length > 0) {
+      message.success(t('settings.loadedModels', { count: models.length }))
     }
+  } catch (e: any) {
+    message.error(t('settings.failedToFetchModels', { error: e?.message || 'Unknown' }))
   } finally {
     loadingModels.value = false
   }
 }
 
 const selectOutputDir = async () => {
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: t('settings.selectOutputDirectory')
-  })
-  
-  if (selected) {
-    settings.outputDirectory = selected as string
+  const selected = await open({ directory: true, multiple: false })
+  if (selected && typeof selected === 'string') {
+    settings.outputDirectory = selected
   }
 }
 
 const selectFfmpegPath = async () => {
   const selected = await open({
     multiple: false,
-    title: t('settings.selectFfmpegExecutable')
+    title: t('settings.selectFfmpegExecutable'),
+    filters: [{ name: 'FFmpeg', extensions: ['ffmpeg', 'exe', ''] }]
   })
-  
-  if (selected) {
-    settings.ffmpegPath = selected as string
+  if (selected && typeof selected === 'string') {
+    settings.ffmpegPath = selected
   }
 }
 
-const saveSettings = async () => {
-  settings.hasSelectedInterfaceLanguage = true
-  await saveApiKey(settings.provider, settings.apiKey)
-  localStorage.setItem(
-    SETTINGS_STORAGE_KEY,
-    JSON.stringify(settingsForStorage(settings))
-  )
-  message.success(t('settings.settingsSaved'))
-  showModal.value = false
+const setPreset = (provider: string) => {
+  const preset = providerPresets[provider]
+  if (preset) {
+    settings.provider = provider
+    settings.apiEndpoint = preset.endpoint
+    if (preset.models.length > 0) {
+      modelOptions.value = preset.models.map(m => ({ label: m, value: m }))
+      settings.selectedModel = preset.models[0]
+    }
+  }
+}
+
+const loadSettings = () => {
+  try {
+    const stored = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      Object.assign(settings, normalizeSettings(parsed))
+    }
+  } catch (e) {
+    console.error('Failed to load settings:', e)
+  }
+}
+
+const saveSettings = () => {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsForStorage(settings)))
+    if (providerRequiresApiKey(settings.provider) && settings.apiKey) {
+      saveApiKey(settings.provider, settings.apiKey)
+    }
+    message.success(t('settings.settingsSaved'))
+    showModal.value = false
+  } catch (e) {
+    console.error('Failed to save settings:', e)
+    message.error('Failed to save settings')
+  }
 }
 
 const resetSettings = () => {
@@ -492,8 +504,23 @@ const resetSettings = () => {
   message.info(t('settings.settingsReset'))
 }
 
-watch(() => settings.interfaceLanguage, (language) => {
-  setInterfaceLocale(language)
+const saveCurrentSettings = () => {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settingsForStorage(settings)))
+}
+
+watch(settings, () => {
+  saveCurrentSettings()
+}, { deep: true })
+
+onMounted(() => {
+  loadSettings()
+  if (settings.provider && settings.provider !== 'ollama') {
+    loadProviderApiKey(settings.provider)
+  }
+  const preset = providerPresets[settings.provider]
+  if (preset?.models.length) {
+    modelOptions.value = preset.models.map(m => ({ label: m, value: m }))
+  }
 })
 
 defineExpose({ settings, getSystemPrompt })
@@ -501,47 +528,55 @@ defineExpose({ settings, getSystemPrompt })
 
 <style scoped>
 .settings-modal {
-  font-family: var(--font-body, "Avenir Next", "Segoe UI", sans-serif);
+  font-family: var(--font-ui, -apple-system, "Segoe UI", system-ui, sans-serif);
 }
 
+.settings-modal.n-card,
 .settings-modal :deep(.n-card) {
-  color: var(--wired-paper, #7ce8a0);
-  border: 1px solid var(--wired-border-strong, rgba(143, 255, 184, 0.32));
   border-radius: 0;
-  background: linear-gradient(180deg, rgba(10, 10, 28, 0.98), rgba(3, 3, 14, 0.98));
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  background: var(--bg-card, #0a0a0a);
+  box-shadow: none;
+  border: 2px solid var(--border, #ffffff);
+  animation: none !important;
+  transition: none !important;
 }
 
 .settings-modal :deep(.n-card-header) {
-  border-bottom: 1px solid var(--wired-border, rgba(124, 232, 160, 0.16));
-  background: rgba(2, 2, 5, 0.40);
+  border-bottom: 2px solid var(--border, #ffffff);
 }
 
 .settings-modal :deep(.n-card-header__main) {
-  color: var(--wired-paper-bright, #8fffb8);
-  font-family: var(--font-wired, ui-monospace, monospace);
-  font-size: 14px;
-  letter-spacing: 0.14em;
+  color: var(--text-primary, #ffffff);
+  font-family: "Arial Black", "Helvetica Neue", sans-serif;
+  font-size: 18px;
+  font-weight: 900;
   text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .settings-modal :deep(.n-card__content) {
-  padding: 22px;
+  padding: 24px !important;
+  height: 520px !important;
+  min-height: 520px !important;
+  max-height: 520px !important;
+  overflow-y: auto !important;
+  box-sizing: border-box !important;
 }
 
 .settings-modal :deep(.n-card__footer) {
-  border-top: 1px solid var(--wired-border, rgba(124, 232, 160, 0.16));
-  background: rgba(2, 2, 5, 0.30);
+  border-top: 2px solid var(--border, #ffffff);
+  background: var(--bg-elevated, #141414);
 }
 
 .settings-stack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .settings-stack.compact {
-  gap: 12px;
+  gap: 10px;
 }
 
 .provider-preset-grid {
@@ -550,7 +585,7 @@ defineExpose({ settings, getSystemPrompt })
   gap: 8px;
 }
 
-.settings-footer-actions {
+.settings-footer {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -559,33 +594,43 @@ defineExpose({ settings, getSystemPrompt })
 .settings-tabs :deep(.n-tabs-tab__label),
 .settings-modal :deep(.n-form-item-label__text),
 .settings-modal :deep(.n-collapse-item__header-main) {
-  color: var(--wired-muted, #8d8064);
-  font-family: var(--font-wired, ui-monospace, monospace);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  color: var(--text-secondary, #888888) !important;
+  font-size: 12px !important;
+  font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: "Courier New", monospace;
 }
 
 .settings-tabs :deep(.n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label) {
-  color: var(--wired-paper-bright, #8fffb8);
+  color: var(--text-primary, #ffffff) !important;
 }
 
 .settings-tabs :deep(.n-tabs-bar) {
-  background: var(--wired-pink, #8088cc);
+  background: var(--text-primary, #ffffff);
 }
 
 .settings-modal :deep(.n-button) {
-  border-radius: 0;
-  font-family: var(--font-wired, ui-monospace, monospace);
-  letter-spacing: 0.05em;
+  border-radius: 0 !important;
+  font-weight: 700;
+  transition: all 80ms ease !important;
+}
+
+.settings-modal :deep(.n-button:active) {
+  transform: translate(2px, 2px);
 }
 
 .settings-modal :deep(.n-button--primary-type) {
-  color: var(--wired-black, #030303) !important;
+  color: var(--bg-base, #0a0a0a) !important;
   font-weight: 900;
-  background: var(--wired-paper, #7ce8a0) !important;
-  border-color: var(--wired-paper, #7ce8a0) !important;
-  box-shadow: 3px 3px 0 var(--wired-red-dark, #2a1040);
+  background: var(--accent, #ffffff) !important;
+  border: 2px solid var(--accent, #ffffff) !important;
+  box-shadow: none;
+}
+
+.settings-modal :deep(.n-button--primary-type:hover) {
+  background: var(--accent-hover, #cccccc) !important;
+  border-color: var(--accent-hover, #cccccc) !important;
 }
 
 .settings-modal :deep(.n-base-selection),
@@ -593,30 +638,31 @@ defineExpose({ settings, getSystemPrompt })
 .settings-modal :deep(.n-input-number),
 .settings-modal :deep(.n-input-number .n-input) {
   border-radius: 0 !important;
-  background: rgba(2, 2, 5, 0.46) !important;
+  background: var(--bg-input, #0a0a0a) !important;
+  border: 1px solid var(--border-thin, #333333) !important;
 }
 
 .settings-modal :deep(.n-base-selection .n-base-selection-label),
 .settings-modal :deep(.n-input-wrapper),
 .settings-modal :deep(.n-input__textarea-el),
 .settings-modal :deep(.n-input__input-el) {
-  color: var(--wired-paper, #7ce8a0) !important;
-  font-family: var(--font-wired, ui-monospace, monospace) !important;
+  color: var(--text-primary, #ffffff) !important;
+  font-family: "Helvetica Neue", sans-serif !important;
 }
 
 .settings-modal :deep(.n-collapse),
 .settings-modal :deep(.n-collapse-item) {
-  border-color: var(--wired-border, rgba(124, 232, 160, 0.16));
+  border-color: var(--border-thin, #333333);
 }
 
 .settings-modal :deep(.n-checkbox__label),
 .settings-modal :deep(.n-text) {
-  color: var(--wired-paper, #7ce8a0) !important;
-  font-family: var(--font-wired, ui-monospace, monospace);
+  color: var(--text-secondary, #888888) !important;
+  font-family: "Helvetica Neue", sans-serif;
 }
 
 .settings-modal :deep(.n-divider) {
-  --n-color: var(--wired-border, rgba(124, 232, 160, 0.16));
+  --n-color: var(--border-thin, #333333);
 }
 
 @media (max-width: 720px) {

@@ -354,7 +354,7 @@ const addTerminology = () => {
 .context-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .context-header {
@@ -366,11 +366,13 @@ const addTerminology = () => {
 
 .context-header h4 {
   margin: 0;
-  font-family: var(--font-wired, ui-monospace, monospace);
-  font-size: 13px;
-  color: var(--wired-paper-bright, #8fffb8);
-  letter-spacing: 0.06em;
+  font-family: "Arial Black", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--text-primary, #ffffff);
   text-transform: uppercase;
+  letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .context-actions {
@@ -383,26 +385,28 @@ const addTerminology = () => {
 .context-empty {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .context-empty-hint {
-  font-size: 12px;
-  color: var(--wired-muted, #4a7a5c);
+  font-size: 13px;
+  color: var(--text-secondary, #888888);
   margin: 0;
+  line-height: 1.5;
+  font-family: "Courier New", monospace;
 }
 
 .context-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .context-summary {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  font-size: 12px;
+  gap: 12px;
+  font-size: 13px;
 }
 
 .summary-field {
@@ -412,11 +416,12 @@ const addTerminology = () => {
 }
 
 .field-label {
-  font-family: var(--font-wired, ui-monospace, monospace);
+  font-family: "Courier New", monospace;
   font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--wired-muted, #4a7a5c);
+  color: var(--text-muted, #555555);
 }
 
 .tag-list {
@@ -428,34 +433,35 @@ const addTerminology = () => {
 .terminology-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .term-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 13px;
 }
 
 .term-source {
-  color: var(--wired-muted, #4a7a5c);
+  color: var(--text-muted, #555555);
 }
 
 .term-arrow {
-  color: var(--wired-pink, #8088cc);
+  color: var(--text-primary, #ffffff);
+  font-weight: 900;
 }
 
 .term-translated {
-  color: var(--wired-paper, #7ce8a0);
+  color: var(--text-primary, #ffffff);
+  font-weight: 700;
 }
 
 .plot-text {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--wired-paper, #7ce8a0);
-  opacity: 0.85;
+  color: var(--text-secondary, #888888);
 }
 
 .context-editor {
@@ -467,7 +473,7 @@ const addTerminology = () => {
 .char-edit-row,
 .term-edit-row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: flex-start;
 }
 
@@ -476,55 +482,63 @@ const addTerminology = () => {
 }
 
 .verified-tag {
-  border-color: var(--wired-pink, #8088cc) !important;
+  border: 1px solid var(--text-primary, #ffffff) !important;
 }
 
 .media-match-field {
-  padding: 8px;
-  border: 1px solid var(--wired-border, rgba(124, 232, 160, 0.16));
-  border-radius: 2px;
-  background: rgba(128, 136, 204, 0.06);
+  padding: 12px;
+  border: 1px solid var(--border-thin, #333333);
+  border-radius: 0;
+  background: var(--bg-elevated, #141414);
 }
 
 .media-match-info {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .media-title {
-  font-weight: 600;
-  color: var(--wired-paper-bright, #8fffb8);
+  font-family: "Arial Black", sans-serif;
+  font-weight: 900;
+  font-size: 14px;
+  color: var(--text-primary, #ffffff);
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
 }
 
 .media-provider {
   font-size: 10px;
-  color: var(--wired-muted, #4a7a5c);
-  font-family: var(--font-wired, ui-monospace, monospace);
+  color: var(--text-muted, #555555);
+  font-family: "Courier New", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .context-extracting {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--wired-muted, #4a7a5c);
+  font-size: 13px;
+  color: var(--text-secondary, #888888);
+  font-family: "Courier New", monospace;
 }
 
 .checkbox-label-content {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 13px;
 }
 
 .eyebrow {
-  font-family: var(--font-wired, ui-monospace, monospace);
+  font-family: "Courier New", monospace;
   font-size: 10px;
-  letter-spacing: 0.12em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--wired-muted, #4a7a5c);
-  margin: 0 0 2px 0;
+  color: var(--text-muted, #555555);
+  margin: 0 0 4px 0;
 }
 </style>

@@ -284,6 +284,216 @@ fn build_profile_from_media(
     }
 }
 
+#[derive(serde::Deserialize)]
+struct LLMExtractionPayload {
+    characters: Option<Vec<CharacterPayload>>,
+    locations: Option<Vec<String>>,
+    terminology: Option<Vec<TerminologyPayload>>,
+    tone_notes: Option<String>,
+    plot_summary: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct CharacterPayload {
+    name: String,
+    role: Option<String>,
+    description: Option<String>,
+    relationships: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+struct TerminologyPayload {
+    source_term: String,
+    translated_term: String,
+    notes: Option<String>,
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn perform_llm_extraction(
+    config: &crate::models::LLMConfig,
+    title: &str,
+    synopsis: Option<&str>,
+    verified_chars: &[crate::models::CharacterProfile],
+    source_lang: &str,
+    target_lang: &str,
+    subtitle_sample: &str,
+    custom_instructions: Option<&str>,
+) -> Result<LLMExtractionPayload, String> {
+    let verified_str = if verified_chars.is_empty() {
+        "None".to_string()
+    } else {
+        verified_chars
+            .iter()
+            .map(|c| format!("- {} ({})", c.name, c.role.as_deref().unwrap_or("unknown")))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let prompt = format!(
+        "You are an anime story and subtitle analyst.\n\
+         Analyze the provided anime info and subtitle dialogue to extract a structured context profile for translation from {} to {}.\n\n\
+         Anime Title: {}\n\
+         Synopsis: {}\n\
+         Verified Characters from Database:\n{}\n\n\
+         Subtitle Dialogue Sample:\n{}\n\n\
+         Custom Instructions: {}\n\n\
+         Return ONLY a valid JSON object matching this schema (no markdown formatting, no code block backticks):\n\
+         {{\n\
+           \"characters\": [\n\
+             {{\"name\": \"Character Name\", \"role\": \"Role/Archetype\", \"description\": \"Brief description\", \"relationships\": [\"Relationship\"]}}\n\
+           ],\n\
+           \"locations\": [\"Location 1\"],\n\
+           \"terminology\": [\n\
+             {{\"source_term\": \"Original Term\", \"translated_term\": \"Translation\", \"notes\": \"Context\"}}\n\
+           ],\n\
+           \"tone_notes\": \"Summary of tone, formality, honorifics, and speaker styles\",\n\
+           \"plot_summary\": \"Brief summary of episode plot/scene\"\n\
+         }}",
+        source_lang,
+        target_lang,
+        title,
+        synopsis.unwrap_or("N/A"),
+        verified_str,
+        subtitle_sample,
+        custom_instructions.unwrap_or("None")
+    );
+
+    let client = Client::new();
+    let provider = config.provider.trim().to_ascii_lowercase();
+    let is_gemini_openai_compat =
+        provider == "gemini" && config.endpoint.contains("/openai");
+    let uses_ollama_native_api =
+        provider == "ollama" && !config.endpoint.contains("/v1");
+    let is_openai_compatible = matches!(
+        provider.as_str(),
+        "openai" | "openrouter" | "custom" | "minimax" | "nvidia" | "lmstudio"
+            | "llamacpp"
+    ) || is_gemini_openai_compat
+        || (provider == "ollama" && !uses_ollama_native_api);
+
+    let (body, endpoint_url, response_format) = if is_openai_compatible {
+        let base = config.endpoint.trim_end_matches('/');
+        let url = if base.ends_with("/chat/completions") {
+            base.to_string()
+        } else {
+            format!("{}/chat/completions", base)
+        };
+        (
+            serde_json::json!({
+                "model": config.model,
+                "messages": [
+                    {"role": "system", "content": "You are a JSON context extractor. Respond with ONLY valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1500
+            }),
+            url,
+            ResponseFormat::OpenAiCompatible,
+        )
+    } else if provider == "gemini" {
+        (
+            serde_json::json!({
+                "contents": [{
+                    "parts": [{"text": format!(
+                        "You are a JSON context extractor. Respond with ONLY valid JSON.\n\n{}",
+                        prompt
+                    )}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 1500
+                }
+            }),
+            build_gemini_generate_content_endpoint(
+                &config.endpoint,
+                &config.model,
+                &config.api_key,
+            ),
+            ResponseFormat::Gemini,
+        )
+    } else if uses_ollama_native_api {
+        let base = config.endpoint.trim_end_matches('/');
+        let url = if base.ends_with("/api/chat") {
+            base.to_string()
+        } else if base.ends_with("/api") {
+            format!("{}/chat", base)
+        } else {
+            format!("{}/api/chat", base)
+        };
+        (
+            serde_json::json!({
+                "model": config.model,
+                "messages": [
+                    {"role": "system", "content": "You are a JSON context extractor. Respond with ONLY valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": false,
+                "options": { "temperature": 0.2 }
+            }),
+            url,
+            ResponseFormat::OllamaNative,
+        )
+    } else {
+        return Err(format!("Unsupported provider: {}", config.provider));
+    };
+
+    let mut req = client.post(&endpoint_url).json(&body);
+
+    if is_gemini_openai_compat {
+        req = req.header("Authorization", format!("Bearer {}", config.api_key));
+    } else {
+        match provider.as_str() {
+            "openai" | "openrouter" | "custom" | "minimax" | "nvidia"
+                if !config.api_key.is_empty() =>
+            {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+                if provider == "openrouter" {
+                    req = req.header("HTTP-Referer", "https://animesubs.app");
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("LLM extraction call failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("LLM extraction error ({}): {}", status, error_text));
+    }
+
+    let response_json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response JSON: {}", e))?;
+
+    let content = extract_response_content(&response_json, response_format)?;
+    let payload = parse_llm_json(&content)?;
+    Ok(payload)
+}
+
+fn parse_llm_json<T: serde::de::DeserializeOwned>(raw: &str) -> Result<T, String> {
+    let thinking_regex = Regex::new(r"(?is)<(?:thinking|think)>.*?</(?:thinking|think)>").unwrap();
+    let cleaned = thinking_regex.replace_all(raw, "").to_string();
+
+    let json_str = if let Some(start) = cleaned.find('{') {
+        if let Some(end) = cleaned.rfind('}') {
+            &cleaned[start..=end]
+        } else {
+            cleaned.trim()
+        }
+    } else {
+        cleaned.trim()
+    };
+
+    serde_json::from_str(json_str).map_err(|e| format!("Failed to parse JSON: {} from raw output: {}", e, raw))
+}
+
 pub async fn extract_context(
     request: &ContextExtractionRequest,
 ) -> Result<ContextProfile, String> {
@@ -303,45 +513,111 @@ pub async fn extract_context(
     )
     .await?;
 
-    eprintln!("Phase 2: searching AniList for '{}'", classified_title);
-    let search_results = anime_tools::search_anime(&classified_title, 5)?;
+    eprintln!("Phase 2: searching metadata providers for '{}'", classified_title);
+    let search_query = classified_title.clone();
+    let tmdb_key = request.tmdb_api_key.clone();
+    let search_results = tokio::task::spawn_blocking(move || {
+        anime_tools::search_anime_combined(&search_query, 5, tmdb_key.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Search task failed: {}", e))??;
 
     if search_results.is_empty() {
-        eprintln!("Phase 2: no AniList results found");
-        return Ok(build_profile_from_media(
-            &MediaMatch {
-                provider: "AniList".to_string(),
-                source_id: String::new(),
-                title_display: classified_title.clone(),
-                title_native: None,
-                title_english: Some(classified_title.clone()),
-                title_romaji: None,
-                synopsis: None,
-                genres: Vec::new(),
-                tags: Vec::new(),
-                aliases: Vec::new(),
-                format: None,
-                episodes: None,
-                season: None,
-                season_year: None,
-            },
-            Some(request.subtitle_data.source_path.clone()),
-        ));
+        eprintln!("Phase 2: no metadata results found");
+        let fallback_media = MediaMatch {
+            provider: "AniList".to_string(),
+            source_id: String::new(),
+            title_display: classified_title.clone(),
+            title_native: None,
+            title_english: Some(classified_title.clone()),
+            title_romaji: None,
+            synopsis: None,
+            genres: Vec::new(),
+            tags: Vec::new(),
+            aliases: Vec::new(),
+            format: None,
+            episodes: None,
+            season: None,
+            season_year: None,
+        };
+
+        let sample_60 = build_subtitle_sample(&request.subtitle_data.lines, 60);
+        let llm_res = perform_llm_extraction(
+            &request.config,
+            &classified_title,
+            None,
+            &[],
+            &request.source_lang,
+            &request.target_lang,
+            &sample_60,
+            request.custom_instructions.as_deref(),
+        )
+        .await;
+
+        let mut profile = build_profile_from_media(&fallback_media, Some(request.subtitle_data.source_path.clone()));
+        if let Ok(llm_data) = llm_res {
+            if let Some(extracted_chars) = llm_data.characters {
+                profile.characters = extracted_chars
+                    .into_iter()
+                    .map(|c| crate::models::CharacterProfile {
+                        name: c.name,
+                        role: c.role,
+                        description: c.description,
+                        relationships: c.relationships,
+                        verified: false,
+                    })
+                    .collect();
+            }
+            if let Some(locs) = llm_data.locations {
+                profile.locations = locs;
+            }
+            if let Some(terms) = llm_data.terminology {
+                profile.terminology = terms
+                    .into_iter()
+                    .map(|t| crate::models::TerminologyEntry {
+                        source_term: t.source_term,
+                        translated_term: t.translated_term,
+                        notes: t.notes,
+                    })
+                    .collect();
+            }
+            if let Some(tone) = llm_data.tone_notes {
+                profile.tone_notes = Some(tone);
+            }
+            if let Some(plot) = llm_data.plot_summary {
+                profile.plot_summary = Some(plot);
+            }
+        }
+
+        if let Some(custom) = request.custom_instructions.as_deref() {
+            profile.custom_instructions = Some(custom.to_string());
+        }
+
+        return Ok(profile);
     }
 
     let best = pick_best_match(&search_results, &classified_title);
-    let best = best.ok_or("No suitable AniList match found")?;
+    let best = best.ok_or("No suitable metadata match found")?;
 
     eprintln!(
-        "Phase 2: best match = '{}' (ID: {})",
-        best.title_display, best.source_id
+        "Phase 2: best match = '{}' (Provider: {}, ID: {})",
+        best.title_display, best.provider, best.source_id
     );
 
     eprintln!("Phase 3: fetching full metadata by ID");
-    let full_media = if best.source_id.is_empty() {
+    let best_id = best.source_id.clone();
+    let provider_name = best.provider.clone();
+    let tmdb_key_for_id = request.tmdb_api_key.clone();
+    let full_media = if best_id.is_empty() {
         None
     } else {
-        anime_tools::get_anime_by_id(&best.source_id).ok().flatten()
+        tokio::task::spawn_blocking(move || {
+            anime_tools::get_anime_by_id_with_provider(&provider_name, &best_id, tmdb_key_for_id.as_deref())
+        })
+        .await
+        .map_err(|e| format!("Metadata lookup task failed: {}", e))?
+        .ok()
+        .flatten()
     };
 
     let media = full_media.as_ref().unwrap_or(best);
@@ -351,7 +627,87 @@ pub async fn extract_context(
         media.genres.join(", ")
     );
 
+    let mut verified_chars = if !media.source_id.is_empty() {
+        anime_tools::fetch_anilist_characters(&media.source_id).await
+    } else {
+        Vec::new()
+    };
+
+    eprintln!("Phase 4: extracting characters, terminology, and tone via LLM");
+    let sample_60 = build_subtitle_sample(&request.subtitle_data.lines, 60);
+    let llm_res = perform_llm_extraction(
+        &request.config,
+        media.title_english.as_deref().unwrap_or(&classified_title),
+        media.synopsis.as_deref(),
+        &verified_chars,
+        &request.source_lang,
+        &request.target_lang,
+        &sample_60,
+        request.custom_instructions.as_deref(),
+    )
+    .await;
+
     let mut profile = build_profile_from_media(media, Some(request.subtitle_data.source_path.clone()));
+
+    match llm_res {
+        Ok(llm_data) => {
+            if let Some(extracted_chars) = llm_data.characters {
+                for ex_char in extracted_chars {
+                    if ex_char.name.trim().is_empty() {
+                        continue;
+                    }
+                    if let Some(v_char) = verified_chars
+                        .iter_mut()
+                        .find(|vc| vc.name.eq_ignore_ascii_case(&ex_char.name))
+                    {
+                        if v_char.description.is_none() && ex_char.description.is_some() {
+                            v_char.description = ex_char.description;
+                        }
+                        if v_char.role.is_none() && ex_char.role.is_some() {
+                            v_char.role = ex_char.role;
+                        }
+                        if ex_char.relationships.is_some() {
+                            v_char.relationships = ex_char.relationships;
+                        }
+                    } else {
+                        verified_chars.push(crate::models::CharacterProfile {
+                            name: ex_char.name,
+                            role: ex_char.role,
+                            description: ex_char.description,
+                            relationships: ex_char.relationships,
+                            verified: false,
+                        });
+                    }
+                }
+            }
+
+            profile.characters = verified_chars;
+
+            if let Some(locs) = llm_data.locations {
+                profile.locations = locs;
+            }
+            if let Some(terms) = llm_data.terminology {
+                profile.terminology = terms
+                    .into_iter()
+                    .map(|t| crate::models::TerminologyEntry {
+                        source_term: t.source_term,
+                        translated_term: t.translated_term,
+                        notes: t.notes,
+                    })
+                    .collect();
+            }
+            if let Some(tone) = llm_data.tone_notes {
+                profile.tone_notes = Some(tone);
+            }
+            if let Some(plot) = llm_data.plot_summary {
+                profile.plot_summary = Some(plot);
+            }
+        }
+        Err(e) => {
+            eprintln!("LLM context extraction phase failed (non-fatal, using AniList characters): {}", e);
+            profile.characters = verified_chars;
+        }
+    }
 
     if let Some(custom) = request.custom_instructions.as_deref() {
         profile.custom_instructions = Some(custom.to_string());

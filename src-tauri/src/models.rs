@@ -208,6 +208,7 @@ pub struct ContextExtractionRequest {
     pub source_lang: String,
     pub target_lang: String,
     pub custom_instructions: Option<String>,
+    pub tmdb_api_key: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

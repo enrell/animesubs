@@ -102,13 +102,15 @@ export const useContextProfile = ({
     extractionStatus.value = 'Classifying anime title...'
 
     try {
+      const settingsObj = settings as Record<string, any> | null
       const result = await extractContextProfile({
         filename,
         subtitleData,
         config,
         sourceLang: settings?.sourceLanguage || 'auto',
         targetLang: settings?.targetLanguage || 'en',
-        customInstructions: customInstructions || null
+        customInstructions: customInstructions || null,
+        tmdbApiKey: settingsObj?.tmdbApiKey || null
       })
       updateProfile(result.profile)
       extractionStatus.value = ''

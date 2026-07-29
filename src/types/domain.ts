@@ -167,6 +167,7 @@ export interface ContextExtractionRequest {
   sourceLang: string
   targetLang: string
   customInstructions: string | null
+  tmdbApiKey?: string | null
 }
 
 export interface ContextExtractionResult {
