@@ -125,6 +125,47 @@
             />
           </n-form-item>
 
+          <n-divider />
+
+          <n-form-item :label="t('settings.batchSize')" label-placement="left">
+            <n-input-number
+              v-model:value="settings.batchSize"
+              :min="10"
+              :max="2000"
+              :step="10"
+              style="width: 100%"
+            />
+            <template #feedback>
+              <n-text depth="3" style="font-size: 11px;">
+                {{ t('settings.batchSizeHint') }}
+              </n-text>
+            </template>
+          </n-form-item>
+
+          <n-form-item :label="t('settings.concurrency')" label-placement="left">
+            <n-input-number
+              v-model:value="settings.concurrency"
+              :min="1"
+              :max="20"
+              :step="1"
+              style="width: 100%"
+            />
+            <template #feedback>
+              <n-text depth="3" style="font-size: 11px;">
+                {{ t('settings.concurrencyHint') }}
+              </n-text>
+            </template>
+          </n-form-item>
+
+          <n-form-item :label="t('settings.autoExtractContext')" label-placement="left">
+            <n-switch v-model:value="settings.autoExtractContext" />
+            <template #feedback>
+              <n-text depth="3" style="font-size: 11px;">
+                {{ t('settings.autoExtractContextHint') }}
+              </n-text>
+            </template>
+          </n-form-item>
+
           <n-collapse>
             <n-collapse-item :title="t('settings.systemPromptPreview')" name="prompt">
               <n-input
@@ -221,6 +262,7 @@ import {
   NFormItem,
   NInput,
   NInputGroup,
+  NInputNumber,
   NSelect,
   NButton,
   NIcon,
@@ -228,6 +270,7 @@ import {
   NCollapseItem,
   NText,
   NCheckbox,
+  NSwitch,
   NDivider,
   useMessage
 } from 'naive-ui'

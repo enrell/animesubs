@@ -117,6 +117,7 @@ export const useTranslationJob = ({
   const fileOutcomes = ref<Record<string, FileOutcome>>({})
   const activeFilePhase = ref<TranslationPhase>('other')
   const activeFileLines = ref<{ done: number; total: number } | null>(null)
+  const activeFilePaths = ref<Set<string>>(new Set())
 
   let queuedProgress: number | null = null
   let queuedStatus: string | null = null
@@ -186,8 +187,9 @@ export const useTranslationJob = ({
     const settings = cachedSettings.value
     const hasApiConfig = hasUsableApiConfig(settings)
     const hasFiles = selectedFiles.value.length > 0
+    const allProbed = selectedFiles.value.every(f => !f.loading)
     const filesReady = selectedFiles.value.some(f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0)
-    return hasApiConfig && hasFiles && filesReady && ffmpegStatus.value?.success
+    return hasApiConfig && hasFiles && allProbed && filesReady && ffmpegStatus.value?.success
   })
 
   const startTranslation = async (paths?: string[]) => {
@@ -270,6 +272,9 @@ export const useTranslationJob = ({
           })
       )
     })
+    const unlistenActiveFiles = await listen<string[]>('translation-active-files', (event) => {
+      activeFilePaths.value = new Set(event.payload)
+    })
 
     try {
       const result = await startTranslationJob({
@@ -293,7 +298,9 @@ export const useTranslationJob = ({
         useMkvmerge: translationOptions.useMkvmerge,
         autoBackup: settings.autoBackup,
         keepOriginalTrack: settings.keepOriginalTrack,
-        contextProfile: contextEnabled.value ? contextProfile.value : null
+        contextProfile: contextEnabled.value ? contextProfile.value : null,
+        batchSize: settings.batchSize || null,
+        concurrency: settings.concurrency || null
       })
 
       flushProgressUpdate()
@@ -341,9 +348,11 @@ export const useTranslationJob = ({
     } finally {
       unlistenProgress()
       unlistenBatchProgress()
+      unlistenActiveFiles()
       isTranslating.value = false
       activeFileLines.value = null
       activeFilePhase.value = 'other'
+      activeFilePaths.value = new Set()
     }
   }
 
@@ -364,6 +373,7 @@ export const useTranslationJob = ({
     activeFileName,
     activeFilePhase,
     activeFileLines,
+    activeFilePaths,
     canStartTranslation,
     setProgress,
     resetProgress,

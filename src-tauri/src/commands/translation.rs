@@ -1,84 +1,22 @@
 use crate::models::*;
-use crate::providers::{call_llm_api_with_context, generate_compaction_summary};
+use crate::providers::call_llm_api_with_context;
 use crate::utils::*;
 use crate::utils::format_context_profile;
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tauri::{AppHandle, Emitter};
+use tokio::sync::{Mutex, Semaphore};
 
-/// Estimates the number of tokens for a given text.
-/// Heuristic: CJK chars ~1.5 tokens each, non-CJK ~0.25 tokens each.
-fn estimate_tokens(text: &str) -> usize {
-    let cjk_count = text.chars().filter(|c| is_cjk(*c)).count();
-    let total_chars = text.chars().count();
-    let non_cjk = total_chars.saturating_sub(cjk_count);
-    (cjk_count * 3 + non_cjk) / 2
-}
-
-fn is_cjk(ch: char) -> bool {
-    matches!(
-        ch,
-        '\u{4E00}'..='\u{9FFF}'
-            | '\u{3040}'..='\u{309F}'
-            | '\u{30A0}'..='\u{30FF}'
-            | '\u{AC00}'..='\u{D7AF}'
-            | '\u{F900}'..='\u{FAFF}'
-            | '\u{3400}'..='\u{4DBF}'
-    )
-}
-
-/// Default context window in tokens for modern LLMs.
-const DEFAULT_CONTEXT_WINDOW: usize = 128_000;
-/// Fraction of context window usable for input (leaves room for prompt + response).
-const INPUT_CONTEXT_RATIO: f64 = 0.65;
-/// Maximum tokens for a compaction summary.
-const MAX_COMPACTION_TOKENS: usize = 2_000;
-
-/// Splits subtitle lines into chunks that fit within the context window.
-fn plan_chunks(
-    lines: &[DialogLine],
-    max_input_tokens: usize,
-) -> Vec<Vec<TranslationLine>> {
-    let effective_budget = max_input_tokens.saturating_sub(MAX_COMPACTION_TOKENS);
-
-    let mut chunks: Vec<Vec<TranslationLine>> = Vec::new();
-    let mut current_chunk: Vec<TranslationLine> = Vec::new();
-    let mut current_tokens = 0usize;
-
-    for line in lines {
-        let line_tokens = estimate_tokens(&line.text);
-        let budget = if chunks.is_empty() {
-            max_input_tokens
-        } else {
-            effective_budget
-        };
-
-        if !current_chunk.is_empty() && current_tokens + line_tokens > budget {
-            chunks.push(std::mem::take(&mut current_chunk));
-            current_tokens = 0;
-        }
-
-        current_tokens += line_tokens;
-        current_chunk.push(TranslationLine {
-            id: line.index,
-            text: line.text.clone(),
-        });
-    }
-
-    if !current_chunk.is_empty() {
-        chunks.push(current_chunk);
-    }
-
-    if chunks.is_empty() {
-        chunks.push(Vec::new());
-    }
-
-    chunks
-}
+/// Default lines per translation batch (request).
+const DEFAULT_BATCH_SIZE: usize = 150;
+/// Default maximum concurrent LLM requests across all episodes/batches.
+const DEFAULT_CONCURRENCY: usize = 6;
+/// Hard upper bound on concurrency to protect providers from abuse.
+const MAX_CONCURRENCY: usize = 20;
 
 #[tauri::command]
 pub async fn translate_subtitles(
@@ -89,144 +27,153 @@ pub async fn translate_subtitles(
     target_lang: String,
     context_profile: Option<ContextProfile>,
 ) -> Result<SubtitleData, String> {
-    let total_lines = subtitle_data.lines.len();
+    let semaphore = Arc::new(Semaphore::new(DEFAULT_CONCURRENCY));
+    translate_subtitles_batched(
+        app,
+        subtitle_data,
+        config,
+        source_lang,
+        target_lang,
+        context_profile,
+        DEFAULT_BATCH_SIZE,
+        semaphore,
+        Arc::new(AtomicUsize::new(0)),
+        0,
+    )
+    .await
+}
 
+/// Translates subtitles by splitting lines into fixed-size batches and issuing
+/// concurrent LLM requests gated by a shared semaphore. The same system prompt
+/// and anime context are used for every batch.
+#[allow(clippy::too_many_arguments)]
+async fn translate_subtitles_batched(
+    app: AppHandle,
+    subtitle_data: SubtitleData,
+    config: LLMConfig,
+    source_lang: String,
+    target_lang: String,
+    context_profile: Option<ContextProfile>,
+    batch_size: usize,
+    semaphore: Arc<Semaphore>,
+    global_translated_counter: Arc<AtomicUsize>,
+    file_index: usize,
+) -> Result<SubtitleData, String> {
+    let total_lines = subtitle_data.lines.len();
     if total_lines == 0 {
         return Err("No dialog lines to translate".to_string());
     }
+
+    let batch_size = batch_size.clamp(1, 2000);
 
     let context_text = context_profile
         .as_ref()
         .map(format_context_profile)
         .filter(|t| !t.trim().is_empty());
 
-    // Estimate total tokens and decide strategy
-    let total_text_tokens: usize = subtitle_data
+    let batches: Vec<Vec<TranslationLine>> = subtitle_data
         .lines
-        .iter()
-        .map(|l| estimate_tokens(&l.text))
-        .sum();
-    let max_input_tokens =
-        (DEFAULT_CONTEXT_WINDOW as f64 * INPUT_CONTEXT_RATIO) as usize;
+        .chunks(batch_size)
+        .map(|chunk| {
+            chunk
+                .iter()
+                .map(|line| TranslationLine {
+                    id: line.index,
+                    text: line.text.clone(),
+                })
+                .collect()
+        })
+        .collect();
 
-    let is_single_call = total_text_tokens <= max_input_tokens;
-
-    eprintln!(
-        "Translation strategy: {} (est. {} tokens, max input {})",
-        if is_single_call {
-            "single call"
-        } else {
-            "chunked with compaction"
-        },
-        total_text_tokens,
-        max_input_tokens
-    );
-
-    let chunks = if is_single_call {
-        let all_lines: Vec<TranslationLine> = subtitle_data
-            .lines
-            .iter()
-            .map(|line| TranslationLine {
-                id: line.index,
-                text: line.text.clone(),
-            })
-            .collect();
-        vec![all_lines]
-    } else {
-        plan_chunks(&subtitle_data.lines, max_input_tokens)
-    };
-
-    let total_chunks = chunks.len();
+    let total_batches = batches.len();
     let translation_map: Arc<Mutex<HashMap<usize, String>>> =
         Arc::new(Mutex::new(HashMap::new()));
-    let mut compacted_context: Option<String> = None;
+    let completed_batches = Arc::new(AtomicUsize::new(0));
 
-    for (chunk_idx, chunk_lines) in chunks.into_iter().enumerate() {
-        if chunk_lines.is_empty() {
+    eprintln!(
+        "Translation strategy: {} concurrent batches of max {} lines ({} lines total)",
+        total_batches, batch_size, total_lines
+    );
+
+    let mut handles = Vec::with_capacity(total_batches);
+    for batch_lines in batches.into_iter() {
+        if batch_lines.is_empty() {
             continue;
         }
 
-        let chunk_num = chunk_idx + 1;
-        let status = if total_chunks == 1 {
-            format!("Translating all {} lines...", total_lines)
-        } else {
-            format!(
-                "Translating chunk {}/{} ({} lines)...",
-                chunk_num,
-                total_chunks,
-                chunk_lines.len()
-            )
-        };
+        let config = config.clone();
+        let source_lang = source_lang.clone();
+        let target_lang = target_lang.clone();
+        let context_text = context_text.clone();
+        let translation_map = Arc::clone(&translation_map);
+        let completed_batches = Arc::clone(&completed_batches);
+        let global_counter = Arc::clone(&global_translated_counter);
+        let semaphore = Arc::clone(&semaphore);
+        let app = app.clone();
 
-        let progress = TranslationProgress {
-            current_chunk: chunk_idx,
-            total_chunks,
-            lines_translated: translation_map.lock().await.len(),
-            total_lines,
-            status,
-        };
-        let _ = app.emit("translation-progress", &progress);
+        handles.push(tokio::spawn(async move {
+            let _permit = semaphore.acquire().await.map_err(|e| e.to_string())?;
 
-        let combined_context: Option<String> = match (&context_text, &compacted_context) {
-            (Some(ctx), Some(comp)) => Some(format!(
-                "PROJECT CONTEXT (characters, terminology, tone):\n{}\n\n\
-                 PREVIOUS CHUNKS SUMMARY:\n{}",
-                ctx, comp
-            )),
-            (Some(ctx), None) => Some(format!(
-                "PROJECT CONTEXT (characters, terminology, tone):\n{}",
-                ctx
-            )),
-            (None, Some(comp)) => Some(comp.clone()),
-            (None, None) => None,
-        };
-
-        let translations = call_llm_api_with_context(
-            &config,
-            &chunk_lines,
-            &source_lang,
-            &target_lang,
-            combined_context.as_deref(),
-        )
-        .await?;
-
-        {
-            let mut map = translation_map.lock().await;
-            for translated in &translations {
-                map.insert(translated.id, translated.text.clone());
-            }
-        }
-
-        // Generate compaction summary for next chunk
-        if chunk_idx < total_chunks - 1 {
-            let translated_sample: Vec<String> = translations
-                .iter()
-                .take(50)
-                .map(|t| {
-                    let src = chunk_lines
-                        .iter()
-                        .find(|l| l.id == t.id)
-                        .map(|l| l.text.as_str())
-                        .unwrap_or("?");
-                    format!("[{}] → [{}]", src, t.text)
-                })
-                .collect();
-
-            let summary = generate_compaction_summary(
+            let translations = call_llm_api_with_context(
                 &config,
-                &translated_sample,
+                &batch_lines,
                 &source_lang,
                 &target_lang,
+                context_text.as_deref(),
             )
-            .await;
+            .await?;
 
-            match summary {
-                Ok(s) => compacted_context = Some(s),
-                Err(e) => {
-                    eprintln!("Compaction summary failed (non-fatal): {}", e);
+            let newly_translated = {
+                let mut map = translation_map.lock().await;
+                let mut added = 0usize;
+                for translated in &translations {
+                    use std::collections::hash_map::Entry;
+                    if let Entry::Vacant(e) = map.entry(translated.id) {
+                        e.insert(translated.text.clone());
+                        added += 1;
+                    }
                 }
-            }
+                added
+            };
+
+            let done_batches = completed_batches.fetch_add(1, Ordering::Relaxed) + 1;
+            let total_done = global_counter.fetch_add(newly_translated, Ordering::Relaxed)
+                + newly_translated;
+
+            let progress = TranslationProgress {
+                current_chunk: done_batches,
+                total_chunks: total_batches,
+                lines_translated: total_done,
+                total_lines,
+                status: format!(
+                    "Translating batch {}/{} ({} lines)",
+                    done_batches,
+                    total_batches,
+                    batch_lines.len()
+                ),
+            };
+            let _ = app.emit("translation-progress", &progress);
+
+            Ok::<(), String>(())
+        }));
+    }
+
+    let results = futures::future::join_all(handles).await;
+    let mut batch_errors = Vec::new();
+    for result in results {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => batch_errors.push(e),
+            Err(e) => batch_errors.push(format!("Batch task panicked: {}", e)),
         }
+    }
+
+    if !batch_errors.is_empty() {
+        return Err(format!(
+            "Translation failed for {} batch(es). First error: {}",
+            batch_errors.len(),
+            batch_errors[0]
+        ));
     }
 
     let map = translation_map.lock().await;
@@ -250,13 +197,14 @@ pub async fn translate_subtitles(
     }
 
     let final_progress = TranslationProgress {
-        current_chunk: total_chunks,
-        total_chunks,
+        current_chunk: total_batches,
+        total_chunks: total_batches,
         lines_translated: map.len(),
         total_lines,
         status: "done".to_string(),
     };
     let _ = app.emit("translation-progress", &final_progress);
+    let _ = file_index;
 
     Ok(SubtitleData {
         format: subtitle_data.format,
@@ -628,253 +576,57 @@ pub async fn start_translation_job(
     request: TranslationJobRequest,
 ) -> Result<TranslationJobResult, String> {
     let total_files = request.video_paths.len();
-    let mut failures = Vec::new();
-    let mut outputs = Vec::new();
-    let mut completed_files = 0usize;
-
     if total_files == 0 {
         return Err("No video files selected".to_string());
     }
 
+    let concurrency = request
+        .concurrency
+        .unwrap_or(DEFAULT_CONCURRENCY)
+        .clamp(1, MAX_CONCURRENCY);
+    let batch_size = request.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
+    let semaphore = Arc::new(Semaphore::new(concurrency));
+    let global_translated_counter = Arc::new(AtomicUsize::new(0));
+    let completed_counter = Arc::new(AtomicUsize::new(0));
+    let active_paths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+    emit_job_progress(&app, 0, total_files, 0.0, "Starting translation job...");
+
+    let mut join_set = tokio::task::JoinSet::new();
     for (file_idx, video_path) in request.video_paths.iter().enumerate() {
-        let current_file = file_idx + 1;
-        let filename = Path::new(video_path)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| video_path.clone());
-        let file_base_progress = (file_idx as f64 / total_files as f64) * 100.0;
-        let file_progress_span = 100.0 / total_files as f64;
-        let progress = |step: f64| file_base_progress + (step * file_progress_span);
-
-        emit_job_progress(
-            &app,
-            current_file,
+        let ctx = EpisodeTaskCtx {
+            app: app.clone(),
+            request: request.clone(),
+            video_path: video_path.clone(),
+            file_idx,
             total_files,
-            progress(0.0),
-            format!("Processing {} ({}/{})", filename, current_file, total_files),
-        );
+            batch_size,
+            semaphore: Arc::clone(&semaphore),
+            global_counter: Arc::clone(&global_translated_counter),
+            completed_counter: Arc::clone(&completed_counter),
+            active_paths: Arc::clone(&active_paths),
+        };
 
-        let use_temporary_files = request.embed_subtitles;
-        let mut extracted_path: Option<String> = None;
-        let mut translated_subtitle_path: Option<String> = None;
+        join_set.spawn(async move { process_episode(ctx).await });
+    }
 
-        let file_result: Result<TranslationJobOutput, String> = async {
-            let video_info =
-                super::video::get_video_info(video_path.clone(), request.ffmpeg_path.clone())
-                    .await?;
+    let mut outputs = Vec::new();
+    let mut failures = Vec::new();
+    let mut completed_files = 0usize;
 
-            let track_index = request.subtitle_track.unwrap_or(0);
-            let track = video_info
-                .subtitle_tracks
-                .get(track_index as usize)
-                .ok_or_else(|| format!("Track {} not found", track_index))?;
-
-            let format = select_subtitle_format(&request.output_format, &track.codec);
-
-            emit_job_progress(
-                &app,
-                current_file,
-                total_files,
-                progress(0.05),
-                format!("Extracting subtitles from {}...", filename),
-            );
-
-            let extract_result = super::subtitle::extract_subtitle(
-                video_path.clone(),
-                track_index,
-                None,
-                Some(format.clone()),
-                Some(use_temporary_files),
-                request.ffmpeg_path.clone(),
-            )
-            .await?;
-
-            if !extract_result.success {
-                return Err(extract_result
-                    .error
-                    .unwrap_or_else(|| "Failed to extract subtitle track".to_string()));
-            }
-
-            let extracted = extract_result
-                .output_path
-                .ok_or_else(|| "Subtitle extraction returned no output path".to_string())?;
-            extracted_path = Some(extracted.clone());
-
-            emit_job_progress(
-                &app,
-                current_file,
-                total_files,
-                progress(0.10),
-                format!("Parsing subtitles from {}...", filename),
-            );
-
-            let subtitle_data = super::subtitle::parse_subtitle_file(extracted.clone()).await?;
-            if subtitle_data.lines.is_empty() {
-                return Err("No dialog lines found in extracted subtitle".to_string());
-            }
-
-            emit_job_progress(
-                &app,
-                current_file,
-                total_files,
-                progress(0.20),
-                format!(
-                    "Translating {} ({} lines)...",
-                    filename,
-                    subtitle_data.lines.len()
-                ),
-            );
-
-            let translated_data = translate_subtitles(
-                app.clone(),
-                subtitle_data,
-                request.config.clone(),
-                if request.source_lang.is_empty() {
-                    "auto".to_string()
-                } else {
-                    request.source_lang.clone()
-                },
-                request.target_lang.clone(),
-                request.context_profile.clone(),
-            )
-            .await?;
-
-            let target_lang_value = if request.target_lang.is_empty() {
-                track.language.as_deref().unwrap_or("und")
-            } else {
-                request.target_lang.as_str()
-            };
-            let filename_lang_code = sanitize_lang_code_for_filename(Some(target_lang_value));
-            let ffmpeg_lang_code = to_ffmpeg_lang_code(Some(target_lang_value));
-            let persistent_path =
-                persistent_output_path(video_path, None, &filename_lang_code, track_index, &format);
-
-            emit_job_progress(
-                &app,
-                current_file,
-                total_files,
-                progress(0.80),
-                format!("Saving translated subtitles for {}...", filename),
-            );
-
-            let save_result = save_translated_subtitles(
-                translated_data,
-                if use_temporary_files {
-                    None
-                } else {
-                    Some(persistent_path)
-                },
-                extracted_path.clone(),
-                Some(use_temporary_files),
-            )
-            .await?;
-
-            if !save_result.success {
-                return Err(save_result.message);
-            }
-
-            let saved_subtitle = save_result
-                .data
-                .ok_or_else(|| "Save returned no subtitle path".to_string())?;
-            translated_subtitle_path = Some(saved_subtitle.clone());
-
-            if request.embed_subtitles {
-                emit_job_progress(
-                    &app,
-                    current_file,
-                    total_files,
-                    progress(0.90),
-                    format!("Embedding translated subtitles in {}...", filename),
-                );
-
-                let current_info =
-                    super::video::get_video_info(video_path.clone(), request.ffmpeg_path.clone())
-                        .await?;
-                let translated_title = format!("Translated ({})", filename_lang_code);
-                let mut tracks_to_remove: Vec<u32> = current_info
-                    .subtitle_tracks
-                    .iter()
-                    .filter(|t| {
-                        t.title.as_deref() == Some(translated_title.as_str())
-                            || t.title
-                                .as_deref()
-                                .map(|title| title.starts_with("Translated ("))
-                                .unwrap_or(false)
-                            || (to_ffmpeg_lang_code(t.language.as_deref()) == ffmpeg_lang_code
-                                && t.index != track_index)
-                    })
-                    .map(|t| t.index)
-                    .collect();
-                tracks_to_remove.sort_by(|a, b| b.cmp(a));
-
-                for track_to_remove in tracks_to_remove {
-                    let remove_result = super::embedding::remove_subtitle_track(
-                        video_path.clone(),
-                        track_to_remove,
-                        request.ffmpeg_path.clone(),
-                    )
-                    .await?;
-                    if !remove_result.success {
-                        return Err(remove_result.message);
-                    }
-                }
-
-                let embed_result = super::embedding::embed_subtitle(
-                    video_path.clone(),
-                    saved_subtitle,
-                    Some(ffmpeg_lang_code),
-                    Some(translated_title),
-                    true,
-                    request.ffmpeg_path.clone(),
-                    Some(request.use_mkvmerge),
-                )
-                .await?;
-
-                if !embed_result.success {
-                    return Err(embed_result.message);
-                }
-            }
-
-            Ok(TranslationJobOutput {
-                video_path: video_path.clone(),
-                subtitle_path: if request.embed_subtitles {
-                    None
-                } else {
-                    translated_subtitle_path.clone()
-                },
-                embedded: request.embed_subtitles,
-            })
-        }
-        .await;
-
-        if use_temporary_files {
-            cleanup_generated_file(extracted_path.as_deref()).await;
-            cleanup_generated_file(translated_subtitle_path.as_deref()).await;
-        }
-
-        match file_result {
-            Ok(output) => {
+    while let Some(res) = join_set.join_next().await {
+        match res {
+            Ok(Ok(output)) => {
                 completed_files += 1;
                 outputs.push(output);
-                emit_job_progress(
-                    &app,
-                    current_file,
-                    total_files,
-                    progress(1.0),
-                    format!("Finished {}", filename),
-                );
             }
-            Err(reason) => {
+            Ok(Err((filename, reason))) => {
                 let failure = format!("{}: {}", filename, reason);
                 eprintln!("{}", failure);
-                emit_job_progress(
-                    &app,
-                    current_file,
-                    total_files,
-                    progress(1.0),
-                    format!("Error in {}: {}", filename, reason),
-                );
                 failures.push(failure);
+            }
+            Err(e) => {
+                failures.push(format!("Episode task panicked: {}", e));
             }
         }
     }
@@ -897,6 +649,295 @@ pub async fn start_translation_job(
         failures,
         outputs,
     })
+}
+
+/// Shared context for a single episode processing task.
+struct EpisodeTaskCtx {
+    app: AppHandle,
+    request: TranslationJobRequest,
+    video_path: String,
+    file_idx: usize,
+    total_files: usize,
+    batch_size: usize,
+    semaphore: Arc<Semaphore>,
+    global_counter: Arc<AtomicUsize>,
+    completed_counter: Arc<AtomicUsize>,
+    active_paths: Arc<Mutex<Vec<String>>>,
+}
+
+/// Processes a single episode end-to-end: extract → parse → translate (batched,
+/// concurrent) → save → embed. Designed to run concurrently for multiple episodes,
+/// sharing a global semaphore that caps total LLM requests.
+async fn process_episode(ctx: EpisodeTaskCtx) -> Result<TranslationJobOutput, (String, String)> {
+    let EpisodeTaskCtx {
+        app,
+        request,
+        video_path,
+        file_idx,
+        total_files,
+        batch_size,
+        semaphore,
+        global_counter,
+        completed_counter,
+        active_paths,
+    } = ctx;
+
+    let current_file = file_idx + 1;
+    let filename = Path::new(&video_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| video_path.clone());
+    let file_base_progress = (file_idx as f64 / total_files as f64) * 100.0;
+    let file_progress_span = 100.0 / total_files as f64;
+    let progress = |step: f64| file_base_progress + (step * file_progress_span);
+
+    // Register this file as active so the UI can mark it "translating".
+    {
+        let mut active = active_paths.lock().await;
+        active.push(video_path.clone());
+        let _ = app.emit("translation-active-files", active.clone());
+    }
+
+    emit_job_progress(
+        &app,
+        current_file,
+        total_files,
+        progress(0.0),
+        format!("Processing {} ({}/{})", filename, current_file, total_files),
+    );
+
+    let use_temporary_files = request.embed_subtitles;
+    let mut extracted_path: Option<String> = None;
+    let mut translated_subtitle_path: Option<String> = None;
+
+    let file_result: Result<TranslationJobOutput, String> = async {
+        let video_info =
+            super::video::get_video_info(video_path.clone(), request.ffmpeg_path.clone())
+                .await?;
+
+        let track_index = request.subtitle_track.unwrap_or(0);
+        let track = video_info
+            .subtitle_tracks
+            .get(track_index as usize)
+            .ok_or_else(|| format!("Track {} not found", track_index))?;
+
+        let format = select_subtitle_format(&request.output_format, &track.codec);
+
+        emit_job_progress(
+            &app,
+            current_file,
+            total_files,
+            progress(0.05),
+            format!("Extracting subtitles from {}...", filename),
+        );
+
+        let extract_result = super::subtitle::extract_subtitle(
+            video_path.clone(),
+            track_index,
+            None,
+            Some(format.clone()),
+            Some(use_temporary_files),
+            request.ffmpeg_path.clone(),
+        )
+        .await?;
+
+        if !extract_result.success {
+            return Err(extract_result
+                .error
+                .unwrap_or_else(|| "Failed to extract subtitle track".to_string()));
+        }
+
+        let extracted = extract_result
+            .output_path
+            .ok_or_else(|| "Subtitle extraction returned no output path".to_string())?;
+        extracted_path = Some(extracted.clone());
+
+        emit_job_progress(
+            &app,
+            current_file,
+            total_files,
+            progress(0.10),
+            format!("Parsing subtitles from {}...", filename),
+        );
+
+        let subtitle_data = super::subtitle::parse_subtitle_file(extracted.clone()).await?;
+        if subtitle_data.lines.is_empty() {
+            return Err("No dialog lines found in extracted subtitle".to_string());
+        }
+
+        emit_job_progress(
+            &app,
+            current_file,
+            total_files,
+            progress(0.20),
+            format!(
+                "Translating {} ({} lines)...",
+                filename,
+                subtitle_data.lines.len()
+            ),
+        );
+
+        let translated_data = translate_subtitles_batched(
+            app.clone(),
+            subtitle_data,
+            request.config.clone(),
+            if request.source_lang.is_empty() {
+                "auto".to_string()
+            } else {
+                request.source_lang.clone()
+            },
+            request.target_lang.clone(),
+            request.context_profile.clone(),
+            batch_size,
+            Arc::clone(&semaphore),
+            Arc::clone(&global_counter),
+            file_idx,
+        )
+        .await?;
+
+        let target_lang_value = if request.target_lang.is_empty() {
+            track.language.as_deref().unwrap_or("und")
+        } else {
+            request.target_lang.as_str()
+        };
+        let filename_lang_code = sanitize_lang_code_for_filename(Some(target_lang_value));
+        let ffmpeg_lang_code = to_ffmpeg_lang_code(Some(target_lang_value));
+        let persistent_path =
+            persistent_output_path(&video_path, None, &filename_lang_code, track_index, &format);
+
+        emit_job_progress(
+            &app,
+            current_file,
+            total_files,
+            progress(0.80),
+            format!("Saving translated subtitles for {}...", filename),
+        );
+
+        let save_result = save_translated_subtitles(
+            translated_data,
+            if use_temporary_files {
+                None
+            } else {
+                Some(persistent_path)
+            },
+            extracted_path.clone(),
+            Some(use_temporary_files),
+        )
+        .await?;
+
+        if !save_result.success {
+            return Err(save_result.message);
+        }
+
+        let saved_subtitle = save_result
+            .data
+            .ok_or_else(|| "Save returned no subtitle path".to_string())?;
+        translated_subtitle_path = Some(saved_subtitle.clone());
+
+        if request.embed_subtitles {
+            emit_job_progress(
+                &app,
+                current_file,
+                total_files,
+                progress(0.90),
+                format!("Embedding translated subtitles in {}...", filename),
+            );
+
+            let current_info =
+                super::video::get_video_info(video_path.clone(), request.ffmpeg_path.clone())
+                    .await?;
+            let translated_title = format!("Translated ({})", filename_lang_code);
+            let mut tracks_to_remove: Vec<u32> = current_info
+                .subtitle_tracks
+                .iter()
+                .filter(|t| {
+                    t.title.as_deref() == Some(translated_title.as_str())
+                        || t.title
+                            .as_deref()
+                            .map(|title| title.starts_with("Translated ("))
+                            .unwrap_or(false)
+                        || (to_ffmpeg_lang_code(t.language.as_deref()) == ffmpeg_lang_code
+                            && t.index != track_index)
+                })
+                .map(|t| t.index)
+                .collect();
+            tracks_to_remove.sort_by(|a, b| b.cmp(a));
+
+            for track_to_remove in tracks_to_remove {
+                let remove_result = super::embedding::remove_subtitle_track(
+                    video_path.clone(),
+                    track_to_remove,
+                    request.ffmpeg_path.clone(),
+                )
+                .await?;
+                if !remove_result.success {
+                    return Err(remove_result.message);
+                }
+            }
+
+            let embed_result = super::embedding::embed_subtitle(
+                video_path.clone(),
+                saved_subtitle,
+                Some(ffmpeg_lang_code),
+                Some(translated_title),
+                true,
+                request.ffmpeg_path.clone(),
+                Some(request.use_mkvmerge),
+            )
+            .await?;
+
+            if !embed_result.success {
+                return Err(embed_result.message);
+            }
+        }
+
+        Ok(TranslationJobOutput {
+            video_path: video_path.clone(),
+            subtitle_path: if request.embed_subtitles {
+                None
+            } else {
+                translated_subtitle_path.clone()
+            },
+            embedded: request.embed_subtitles,
+        })
+    }
+    .await;
+
+    if use_temporary_files {
+        cleanup_generated_file(extracted_path.as_deref()).await;
+        cleanup_generated_file(translated_subtitle_path.as_deref()).await;
+    }
+
+    // Remove this file from the active set.
+    {
+        let mut active = active_paths.lock().await;
+        active.retain(|p| p != &video_path);
+        let _ = app.emit("translation-active-files", active.clone());
+    }
+
+    let done = completed_counter.fetch_add(1, Ordering::Relaxed) + 1;
+    match file_result {
+        Ok(output) => {
+            emit_job_progress(
+                &app,
+                done,
+                total_files,
+                progress(1.0),
+                format!("Finished {}", filename),
+            );
+            Ok(output)
+        }
+        Err(reason) => {
+            emit_job_progress(
+                &app,
+                done,
+                total_files,
+                progress(1.0),
+                format!("Error in {}: {}", filename, reason),
+            );
+            Err((filename, reason))
+        }
+    }
 }
 
 #[cfg(test)]

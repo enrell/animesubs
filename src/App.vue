@@ -298,7 +298,7 @@
                   @click="showSettings = true"
                 >
                   <template #icon><n-icon><settings-outline /></n-icon></template>
-                  {{ footerReason }}
+                  {{ setupLabel }}
                 </n-button>
               </div>
             </footer>
@@ -508,6 +508,7 @@ const {
   activeFileName,
   activeFilePhase,
   activeFileLines,
+  activeFilePaths,
   canStartTranslation,
   resetProgress,
   clearOutcome,
@@ -531,7 +532,8 @@ const { getRowState, queuePosition, counts, failedPaths } = useQueueStates({
   isTranslating,
   batchPaths,
   currentFileIndex,
-  fileOutcomes
+  fileOutcomes,
+  activeFilePaths
 })
 
 const primaryKind = computed<'translate' | 'retry' | 'busy' | 'setup' | 'hidden'>(() => {
@@ -543,10 +545,12 @@ const primaryKind = computed<'translate' | 'retry' | 'busy' | 'setup' | 'hidden'
   return 'hidden'
 })
 
+const setupLabel = computed(() =>
+  !providerReady.value ? t('footer.disabledProvider') : t('footer.disabledFfmpeg')
+)
+
 const footerReason = computed(() => {
-  if (primaryKind.value === 'setup') {
-    return !providerReady.value ? t('footer.disabledProvider') : t('footer.disabledFfmpeg')
-  }
+  if (primaryKind.value === 'setup') return ''
   if (selectedFiles.value.length === 0) return t('footer.disabledAdd')
   return ''
 })
@@ -596,6 +600,23 @@ const onExtractContext = async () => {
     console.error('Context extraction failed:', e)
   }
 }
+
+let autoExtractScheduled = false
+const maybeAutoExtractContext = () => {
+  if (autoExtractScheduled || isExtractingContext.value || isTranslating.value) return
+  const settings = getSettings()
+  if (!settings?.autoExtractContext) return
+  if (contextProfile.value) return
+  const file = selectedFiles.value.find(
+    f => f.videoInfo && f.videoInfo.subtitle_tracks.length > 0 && !f.loading
+  )
+  if (!file) return
+  if (!hasUsableApiConfig(settings)) return
+  autoExtractScheduled = true
+  void onExtractContext().finally(() => { autoExtractScheduled = false })
+}
+
+watch(selectedFiles, maybeAutoExtractContext, { deep: true })
 
 const onSaveContextToFile = async () => {
   if (!contextProfile.value) return

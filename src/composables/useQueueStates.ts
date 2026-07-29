@@ -17,6 +17,7 @@ interface UseQueueStatesParams {
   batchPaths: Ref<string[]>
   currentFileIndex: Ref<number>
   fileOutcomes: Ref<Record<string, FileOutcome>>
+  activeFilePaths: Ref<Set<string>>
 }
 
 export const useQueueStates = ({
@@ -24,7 +25,8 @@ export const useQueueStates = ({
   isTranslating,
   batchPaths,
   currentFileIndex,
-  fileOutcomes
+  fileOutcomes,
+  activeFilePaths
 }: UseQueueStatesParams) => {
   const getRowState = (file: SelectedFile): QueueRowState => {
     if (file.loading) return 'probing'
@@ -34,8 +36,8 @@ export const useQueueStates = ({
     if (isTranslating.value) {
       const idx = batchPaths.value.indexOf(file.path)
       if (idx > -1) {
-        if (idx === currentFileIndex.value) return 'translating'
-        if (idx > currentFileIndex.value) return 'queued'
+        if (activeFilePaths.value.has(file.path)) return 'translating'
+        if (idx >= currentFileIndex.value) return 'queued'
       }
     }
     if (!file.videoInfo) return 'failed'

@@ -122,6 +122,13 @@ pub struct TranslationJobRequest {
     pub auto_backup: bool,
     pub keep_original_track: bool,
     pub context_profile: Option<ContextProfile>,
+    /// Maximum subtitle lines per translation request (batch). Default 150.
+    #[serde(default)]
+    pub batch_size: Option<usize>,
+    /// Maximum number of concurrent LLM requests across all episodes/batches.
+    /// Default 6.
+    #[serde(default)]
+    pub concurrency: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

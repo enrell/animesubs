@@ -38,7 +38,7 @@ export const useContextProfile = ({
   const contextProfile = ref<ContextProfile | null>(null)
   const isExtracting = ref(false)
   const extractionStatus = ref('')
-  const contextEnabled = ref(false)
+  const contextEnabled = ref(true)
 
   const loadStoredProfile = () => {
     try {

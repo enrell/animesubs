@@ -85,6 +85,8 @@ export interface TranslationJobRequest {
   autoBackup: boolean
   keepOriginalTrack: boolean
   contextProfile: ContextProfile | null
+  batchSize?: number | null
+  concurrency?: number | null
 }
 
 export interface TranslationJobProgress {

@@ -20,10 +20,16 @@ export interface Settings {
   ffmpegPath: string
   autoBackup: boolean
   keepOriginalTrack: boolean
+  batchSize: number
+  concurrency: number
+  autoExtractContext: boolean
 }
 
 export const SETTINGS_STORAGE_KEY = 'animesubs-settings'
 export const TRANSLATION_OPTIONS_STORAGE_KEY = 'animesubs-translation-options'
+
+export const DEFAULT_BATCH_SIZE = 150
+export const DEFAULT_CONCURRENCY = 6
 
 export const defaultSettings: Settings = {
   provider: 'openai',
@@ -40,7 +46,10 @@ export const defaultSettings: Settings = {
   outputFormat: '',
   ffmpegPath: '',
   autoBackup: true,
-  keepOriginalTrack: true
+  keepOriginalTrack: true,
+  batchSize: DEFAULT_BATCH_SIZE,
+  concurrency: DEFAULT_CONCURRENCY,
+  autoExtractContext: true
 }
 
 export const settingsForStorage = (settings: Settings): Settings => ({
@@ -54,11 +63,24 @@ export const normalizeSettings = (settings: Partial<Settings>): Settings => {
     ? settings.interfaceLanguage
     : defaultInterfaceLanguage
 
+  const batchSize = typeof settings.batchSize === 'number' && settings.batchSize > 0
+    ? settings.batchSize
+    : defaultSettings.batchSize
+  const concurrency = typeof settings.concurrency === 'number' && settings.concurrency > 0
+    ? settings.concurrency
+    : defaultSettings.concurrency
+  const autoExtractContext = typeof settings.autoExtractContext === 'boolean'
+    ? settings.autoExtractContext
+    : defaultSettings.autoExtractContext
+
   return {
     ...defaultSettings,
     ...settings,
     interfaceLanguage,
-    hasSelectedInterfaceLanguage: Boolean(settings.hasSelectedInterfaceLanguage)
+    hasSelectedInterfaceLanguage: Boolean(settings.hasSelectedInterfaceLanguage),
+    batchSize,
+    concurrency,
+    autoExtractContext
   }
 }
 
