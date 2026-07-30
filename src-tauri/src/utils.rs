@@ -392,32 +392,64 @@ Example output:
 }
 
 pub fn clean_json_response(content: &str) -> String {
-    let content = content.trim();
+    let mut trimmed = content.trim();
 
-    if let Some(start) = content.find('{') {
+    // Strip markdown code fences (```json ... ``` or ``` ...) if present
+    if trimmed.starts_with("```") {
+        if let Some(first_line_end) = trimmed.find('\n') {
+            trimmed = &trimmed[first_line_end + 1..];
+        } else {
+            trimmed = trimmed.trim_start_matches('`').trim();
+        }
+        if let Some(last_fence) = trimmed.rfind("```") {
+            trimmed = &trimmed[..last_fence];
+        }
+        trimmed = trimmed.trim();
+    }
+
+    if let Some(start) = trimmed.find('{') {
         let mut depth = 0;
+        let mut in_string = false;
+        let mut escape = false;
         let mut end_pos = start;
 
-        for (i, c) in content[start..].char_indices() {
-            match c {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        end_pos = start + i + 1;
-                        break;
+        for (i, c) in trimmed[start..].char_indices() {
+            if escape {
+                escape = false;
+                continue;
+            }
+
+            if c == '\\' && in_string {
+                escape = true;
+                continue;
+            }
+
+            if c == '"' {
+                in_string = !in_string;
+                continue;
+            }
+
+            if !in_string {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_pos = start + i + 1;
+                            break;
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
 
         if end_pos > start {
-            return content[start..end_pos].to_string();
+            return trimmed[start..end_pos].to_string();
         }
     }
 
-    content.to_string()
+    trimmed.to_string()
 }
 
 pub fn get_backup_dir(video_path: &str) -> PathBuf {
@@ -636,5 +668,16 @@ mod tests {
         assert!(!should_translate_dialog_line("Default", "Hi", "Hi"));
         assert!(!should_translate_dialog_line("Default", "♪ La la la ♪", "La la la"));
         assert!(!should_translate_dialog_line("Default", "", ""));
+    }
+
+    #[test]
+    fn clean_json_response_handles_markdown_code_fences_and_string_braces() {
+        let input = "```json\n{\"translations\": [{\"id\": 1, \"text\": \"Hello {world}\"}]}\n```";
+        let cleaned = clean_json_response(input);
+        assert_eq!(cleaned, "{\"translations\": [{\"id\": 1, \"text\": \"Hello {world}\"}]}");
+
+        let input_with_ass = "```\n{\"translations\": [{\"id\": 420, \"text\": \"{\\pos(100,200)}Text\"}]}\n```";
+        let cleaned_ass = clean_json_response(input_with_ass);
+        assert_eq!(cleaned_ass, "{\"translations\": [{\"id\": 420, \"text\": \"{\\pos(100,200)}Text\"}]}");
     }
 }
