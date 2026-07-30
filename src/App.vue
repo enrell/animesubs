@@ -796,10 +796,7 @@ textarea {
   content: '';
   position: absolute;
   inset: 0;
-  background-image: var(--theme-bg-image);
-  background-size: cover;
-  background-position: center;
-  opacity: var(--theme-bg-opacity);
+  background: var(--bg-base);
   pointer-events: none;
   z-index: 0;
 }

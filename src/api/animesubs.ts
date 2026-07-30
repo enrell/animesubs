@@ -39,6 +39,7 @@ export const translateSubtitles = (params: {
   config: LlmConfig
   sourceLang: string
   targetLang: string
+  concurrency?: number | null
 }) => invoke<SubtitleData>('translate_subtitles', params)
 
 export const saveTranslatedSubtitles = (params: {

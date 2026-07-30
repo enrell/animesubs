@@ -300,6 +300,7 @@ export const useTranslationJob = ({
         keepOriginalTrack: settings.keepOriginalTrack,
         contextProfile: contextEnabled.value ? contextProfile.value : null,
         batchSize: settings.batchSize || null,
+        episodeConcurrency: settings.episodeConcurrency || null,
         concurrency: settings.concurrency || null
       })
 

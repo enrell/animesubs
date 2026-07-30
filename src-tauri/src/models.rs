@@ -125,6 +125,9 @@ pub struct TranslationJobRequest {
     /// Maximum subtitle lines per translation request (batch). Default 150.
     #[serde(default)]
     pub batch_size: Option<usize>,
+    /// Maximum number of episodes to process concurrently. Default 2.
+    #[serde(default)]
+    pub episode_concurrency: Option<usize>,
     /// Maximum number of concurrent LLM requests across all episodes/batches.
     /// Default 6.
     #[serde(default)]

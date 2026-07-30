@@ -142,6 +142,21 @@
             </template>
           </n-form-item>
 
+          <n-form-item :label="t('settings.episodeConcurrency')" label-placement="left">
+            <n-input-number
+              v-model:value="settings.episodeConcurrency"
+              :min="1"
+              :max="10"
+              :step="1"
+              style="width: 100%"
+            />
+            <template #feedback>
+              <n-text depth="3" style="font-size: 11px;">
+                {{ t('settings.episodeConcurrencyHint') }}
+              </n-text>
+            </template>
+          </n-form-item>
+
           <n-form-item :label="t('settings.concurrency')" label-placement="left">
             <n-input-number
               v-model:value="settings.concurrency"

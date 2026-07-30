@@ -21,6 +21,7 @@ export interface Settings {
   autoBackup: boolean
   keepOriginalTrack: boolean
   batchSize: number
+  episodeConcurrency: number
   concurrency: number
   autoExtractContext: boolean
 }
@@ -29,6 +30,7 @@ export const SETTINGS_STORAGE_KEY = 'animesubs-settings'
 export const TRANSLATION_OPTIONS_STORAGE_KEY = 'animesubs-translation-options'
 
 export const DEFAULT_BATCH_SIZE = 150
+export const DEFAULT_EPISODE_CONCURRENCY = 2
 export const DEFAULT_CONCURRENCY = 6
 
 export const defaultSettings: Settings = {
@@ -48,6 +50,7 @@ export const defaultSettings: Settings = {
   autoBackup: true,
   keepOriginalTrack: true,
   batchSize: DEFAULT_BATCH_SIZE,
+  episodeConcurrency: DEFAULT_EPISODE_CONCURRENCY,
   concurrency: DEFAULT_CONCURRENCY,
   autoExtractContext: true
 }
@@ -66,6 +69,9 @@ export const normalizeSettings = (settings: Partial<Settings>): Settings => {
   const batchSize = typeof settings.batchSize === 'number' && settings.batchSize > 0
     ? settings.batchSize
     : defaultSettings.batchSize
+  const episodeConcurrency = typeof settings.episodeConcurrency === 'number' && settings.episodeConcurrency > 0
+    ? settings.episodeConcurrency
+    : defaultSettings.episodeConcurrency
   const concurrency = typeof settings.concurrency === 'number' && settings.concurrency > 0
     ? settings.concurrency
     : defaultSettings.concurrency
@@ -79,6 +85,7 @@ export const normalizeSettings = (settings: Partial<Settings>): Settings => {
     interfaceLanguage,
     hasSelectedInterfaceLanguage: Boolean(settings.hasSelectedInterfaceLanguage),
     batchSize,
+    episodeConcurrency,
     concurrency,
     autoExtractContext
   }

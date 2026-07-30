@@ -17,6 +17,10 @@ const DEFAULT_BATCH_SIZE: usize = 150;
 const DEFAULT_CONCURRENCY: usize = 6;
 /// Hard upper bound on concurrency to protect providers from abuse.
 const MAX_CONCURRENCY: usize = 20;
+/// Default maximum concurrent episodes processed in parallel.
+const DEFAULT_EPISODE_CONCURRENCY: usize = 2;
+/// Hard upper bound on episode concurrency.
+const MAX_EPISODE_CONCURRENCY: usize = 10;
 
 #[tauri::command]
 pub async fn translate_subtitles(
@@ -26,8 +30,12 @@ pub async fn translate_subtitles(
     source_lang: String,
     target_lang: String,
     context_profile: Option<ContextProfile>,
+    concurrency: Option<usize>,
 ) -> Result<SubtitleData, String> {
-    let semaphore = Arc::new(Semaphore::new(DEFAULT_CONCURRENCY));
+    let concurrency = concurrency
+        .unwrap_or(DEFAULT_CONCURRENCY)
+        .clamp(1, MAX_CONCURRENCY);
+    let semaphore = Arc::new(Semaphore::new(concurrency));
     translate_subtitles_batched(
         app,
         subtitle_data,
@@ -220,26 +228,12 @@ fn reconstruct_ass(original_content: &str, translations: &[DialogLine]) -> Strin
     let mut in_events = false;
     let mut in_styles = false;
     let mut style_encoding_index: Option<usize> = None;
-
-    let translation_map: std::collections::HashMap<String, &str> = translations
-        .iter()
-        .map(|t| {
-            let key = strip_ass_tags(&t.original_with_formatting)
-                .trim()
-                .to_lowercase();
-            (key, t.text.as_str())
-        })
-        .collect();
-
-    let skip_styles: Vec<&str> = vec![
-        "op", "ed", "opening", "ending", "karaoke", "romaji", "japanese", "sign", "signs", "title",
-        "song", "lyrics", "insert", "credit", "credits",
-    ];
+    let mut dialog_idx = 0;
 
     for line in original_content.lines() {
         let trimmed = line.trim();
 
-        if trimmed.starts_with("[") {
+        if trimmed.starts_with('[') {
             let section = trimmed.trim_matches(&['[', ']'][..]).to_ascii_lowercase();
             match section.as_str() {
                 "v4+ styles" => {
@@ -293,27 +287,17 @@ fn reconstruct_ass(original_content: &str, translations: &[DialogLine]) -> Strin
             if parts.len() >= 10 {
                 let original_text = parts[9..].join(",");
                 let clean_original = strip_ass_tags(&original_text);
-                let style = parts[3].trim().to_lowercase();
-                let is_music_line = is_music_or_karaoke_line(&original_text, &clean_original);
+                let style_str = parts[3].trim();
 
-                let should_skip = skip_styles.iter().any(|&skip| {
-                    style.contains(skip) || style.split_whitespace().any(|word| word == skip)
-                });
-
-                let is_too_short = clean_original.trim().chars().count() < 3;
-
-                if !should_skip
-                    && !is_too_short
-                    && !clean_original.trim().is_empty()
-                    && !is_music_line
+                if should_translate_dialog_line(style_str, &original_text, &clean_original)
+                    && dialog_idx < translations.len()
                 {
-                    let lookup_key = clean_original.trim().to_lowercase();
-                    if let Some(translated_text) = translation_map.get(&lookup_key) {
-                        let new_text = apply_ass_formatting(&original_text, translated_text);
-                        let new_line = format!("{},{}", parts[..9].join(","), new_text);
-                        result.push(new_line);
-                        continue;
-                    }
+                    let translated_text = &translations[dialog_idx].text;
+                    let new_text = apply_ass_formatting(&original_text, translated_text);
+                    let new_line = format!("{},{}", parts[..9].join(","), new_text);
+                    result.push(new_line);
+                    dialog_idx += 1;
+                    continue;
                 }
             }
         }
@@ -328,12 +312,15 @@ fn apply_ass_formatting(original: &str, translated: &str) -> String {
     let tag_regex = Regex::new(r"^(\{[^}]*\})").unwrap();
     let leading_tags: String = tag_regex.find_iter(original).map(|m| m.as_str()).collect();
 
-    let formatted_translation = translated.replace("\n", "\\N");
+    let clean_translated = translated
+        .replace("\r\n", "\n")
+        .replace('\r', "")
+        .replace('\n', "\\N");
 
     if !leading_tags.is_empty() {
-        format!("{}{}", leading_tags, formatted_translation)
+        format!("{}{}", leading_tags, clean_translated)
     } else {
-        formatted_translation
+        clean_translated
     }
 }
 
@@ -341,9 +328,13 @@ fn reconstruct_srt(translations: &[DialogLine]) -> String {
     let mut result = Vec::new();
 
     for (idx, line) in translations.iter().enumerate() {
+        let clean_text = line
+            .text
+            .replace("\r\n", "\n")
+            .replace('\r', "");
         result.push(format!("{}", idx + 1));
         result.push(format!("{} --> {}", line.start, line.end));
-        result.push(line.text.clone());
+        result.push(clean_text);
         result.push(String::new());
     }
 
@@ -354,8 +345,12 @@ fn reconstruct_vtt(translations: &[DialogLine]) -> String {
     let mut result = vec!["WEBVTT".to_string(), String::new()];
 
     for line in translations {
+        let clean_text = line
+            .text
+            .replace("\r\n", "\n")
+            .replace('\r', "");
         result.push(format!("{} --> {}", line.start, line.end));
-        result.push(line.text.clone());
+        result.push(clean_text);
         result.push(String::new());
     }
 
@@ -580,11 +575,16 @@ pub async fn start_translation_job(
         return Err("No video files selected".to_string());
     }
 
+    let episode_concurrency = request
+        .episode_concurrency
+        .unwrap_or(DEFAULT_EPISODE_CONCURRENCY)
+        .clamp(1, MAX_EPISODE_CONCURRENCY);
     let concurrency = request
         .concurrency
         .unwrap_or(DEFAULT_CONCURRENCY)
         .clamp(1, MAX_CONCURRENCY);
     let batch_size = request.batch_size.unwrap_or(DEFAULT_BATCH_SIZE);
+    let episode_semaphore = Arc::new(Semaphore::new(episode_concurrency));
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let global_translated_counter = Arc::new(AtomicUsize::new(0));
     let completed_counter = Arc::new(AtomicUsize::new(0));
@@ -607,7 +607,15 @@ pub async fn start_translation_job(
             active_paths: Arc::clone(&active_paths),
         };
 
-        join_set.spawn(async move { process_episode(ctx).await });
+        let episode_semaphore = Arc::clone(&episode_semaphore);
+        let video_path = video_path.clone();
+        join_set.spawn(async move {
+            let _permit = episode_semaphore
+                .acquire()
+                .await
+                .map_err(|e| (video_path.clone(), e.to_string()))?;
+            process_episode(ctx).await
+        });
     }
 
     let mut outputs = Vec::new();
@@ -1003,6 +1011,25 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Signs,,0,0,0,,Shop sign
     }
 
     #[test]
+    fn reconstruct_ass_handles_duplicate_original_texts_and_newlines() {
+        let original = r#"[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Sim
+Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Sim
+"#;
+        let lines = vec![
+            line(0, "Sim, mestre\nprimeira linha", "Sim", "0:00:01.00", "0:00:02.00"),
+            line(1, "Sim, senhora\r\nsegunda linha", "Sim", "0:00:03.00", "0:00:04.00"),
+        ];
+
+        let output = reconstruct_ass(original, &lines);
+
+        assert!(output.contains("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Sim, mestre\\Nprimeira linha"));
+        assert!(output.contains("Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Sim, senhora\\Nsegunda linha"));
+        assert!(!output.contains("\r"));
+    }
+
+    #[test]
     fn helper_maps_language_codes_for_embedding_and_filenames() {
         assert_eq!(to_ffmpeg_lang_code(Some("pt-BR")), "por");
         assert_eq!(to_ffmpeg_lang_code(Some("en_US")), "eng");
@@ -1033,5 +1060,40 @@ Dialogue: 0,0:00:03.00,0:00:04.00,Signs,,0,0,0,,Shop sign
         assert!(path.starts_with("/tmp/animesubs-out/"));
         assert!(path.contains("Episode 01_por_"));
         assert!(path.ends_with("_track2.srt"));
+    }
+
+    #[test]
+    fn reconstruct_ass_sequential_order_regression_test() {
+        let original = r#"[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Nani?
+Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,Nani?
+Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,Nani?
+"#;
+        let lines = vec![
+            line(0, "O quê? (1)", "Nani?", "0:00:01.00", "0:00:02.00"),
+            line(1, "O quê? (2)", "Nani?", "0:00:03.00", "0:00:04.00"),
+            line(2, "O quê? (3)", "Nani?", "0:00:05.00", "0:00:06.00"),
+        ];
+
+        let output = reconstruct_ass(original, &lines);
+
+        assert!(output.contains("Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,O quê? (1)"));
+        assert!(output.contains("Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,O quê? (2)"));
+        assert!(output.contains("Dialogue: 0,0:00:05.00,0:00:06.00,Default,,0,0,0,,O quê? (3)"));
+    }
+
+    #[tokio::test]
+    async fn concurrency_semaphore_limits_parallel_tasks() {
+        let semaphore = Arc::new(Semaphore::new(1));
+        let permit1 = semaphore.clone().try_acquire_owned();
+        assert!(permit1.is_ok());
+
+        let permit2 = semaphore.clone().try_acquire_owned();
+        assert!(permit2.is_err()); // Limit 1 respected!
+
+        drop(permit1);
+        let permit3 = semaphore.clone().try_acquire_owned();
+        assert!(permit3.is_ok());
     }
 }

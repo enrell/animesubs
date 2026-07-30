@@ -95,11 +95,6 @@ fn parse_ass_file(content: &str) -> Result<SubtitleData, String> {
     let mut in_events = false;
     let mut header_end = 0;
 
-    let skip_styles: Vec<&str> = vec![
-        "op", "ed", "opening", "ending", "karaoke", "romaji", "japanese", "sign", "signs", "title",
-        "song", "lyrics", "insert", "credit", "credits",
-    ];
-
     for (line_num, line) in content.lines().enumerate() {
         let trimmed = line.trim();
 
@@ -129,21 +124,9 @@ fn parse_ass_file(content: &str) -> Result<SubtitleData, String> {
                 };
                 let original_text = parts[9..].join(",");
                 let clean_text = strip_ass_tags(&original_text);
-                let is_music_line = is_music_or_karaoke_line(&original_text, &clean_text);
 
-                let style_lower = style.as_ref().map(|s| s.to_lowercase()).unwrap_or_default();
-                let should_skip_style = skip_styles.iter().any(|&skip| {
-                    style_lower.contains(skip)
-                        || style_lower.split_whitespace().any(|word| word == skip)
-                });
-
-                let is_too_short = clean_text.trim().chars().count() < 3;
-
-                if !clean_text.trim().is_empty()
-                    && !should_skip_style
-                    && !is_too_short
-                    && !is_music_line
-                {
+                let style_str = style.as_deref().unwrap_or_default();
+                if should_translate_dialog_line(style_str, &original_text, &clean_text) {
                     lines.push(DialogLine {
                         index: lines.len(),
                         text: clean_text,

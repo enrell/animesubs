@@ -288,6 +288,23 @@ pub fn strip_ass_tags(text: &str) -> String {
     result.replace("\\N", "\n").replace("\\n", "\n")
 }
 
+pub fn should_translate_dialog_line(style: &str, original_text: &str, clean_text: &str) -> bool {
+    let skip_styles: Vec<&str> = vec![
+        "op", "ed", "opening", "ending", "karaoke", "romaji", "japanese", "sign", "signs", "title",
+        "song", "lyrics", "insert", "credit", "credits",
+    ];
+    let style_lower = style.to_lowercase();
+    let should_skip_style = skip_styles.iter().any(|&skip| {
+        style_lower.contains(skip) || style_lower.split_whitespace().any(|word| word == skip)
+    });
+
+    let clean_trimmed = clean_text.trim();
+    let is_too_short = clean_trimmed.chars().count() < 3;
+    let is_music = is_music_or_karaoke_line(original_text, clean_trimmed);
+
+    !clean_trimmed.is_empty() && !should_skip_style && !is_too_short && !is_music
+}
+
 pub fn is_music_or_karaoke_line(original_text: &str, clean_text: &str) -> bool {
     let lowered = clean_text.to_ascii_lowercase();
     let original_lower = original_text.to_ascii_lowercase();
@@ -295,7 +312,11 @@ pub fn is_music_or_karaoke_line(original_text: &str, clean_text: &str) -> bool {
     let has_music_notes = clean_text.contains('♪')
         || clean_text.contains('♫')
         || clean_text.contains('♩')
-        || clean_text.contains('♬');
+        || clean_text.contains('♬')
+        || original_text.contains('♪')
+        || original_text.contains('♫')
+        || original_text.contains('♩')
+        || original_text.contains('♬');
     let has_music_words = lowered.contains("[music")
         || lowered.contains("(music")
         || lowered.contains("bgm")
@@ -605,5 +626,15 @@ mod tests {
 
         let formatted = format_context_profile(&profile);
         assert!(formatted.is_empty());
+    }
+
+    #[test]
+    fn should_translate_dialog_line_filters_styles_music_and_short_texts() {
+        assert!(should_translate_dialog_line("Default", "Hello world", "Hello world"));
+        assert!(!should_translate_dialog_line("OP", "Opening song lyrics", "Opening song lyrics"));
+        assert!(!should_translate_dialog_line("Sign", "Danger", "Danger"));
+        assert!(!should_translate_dialog_line("Default", "Hi", "Hi"));
+        assert!(!should_translate_dialog_line("Default", "♪ La la la ♪", "La la la"));
+        assert!(!should_translate_dialog_line("Default", "", ""));
     }
 }

@@ -86,6 +86,7 @@ export interface TranslationJobRequest {
   keepOriginalTrack: boolean
   contextProfile: ContextProfile | null
   batchSize?: number | null
+  episodeConcurrency?: number | null
   concurrency?: number | null
 }
 

@@ -34,8 +34,8 @@ export const useAppTheme = () => {
     for (const [key, value] of Object.entries(def.tokens)) {
       root.style.setProperty(key, value)
     }
-    root.style.setProperty('--theme-bg-image', `url("${def.background}")`)
-    root.style.setProperty('--theme-bg-opacity', def.backgroundOpacity)
+    root.style.setProperty('--theme-bg-image', 'none')
+    root.style.setProperty('--theme-bg-opacity', '0')
     root.dataset.theme = def.name
     root.classList.toggle('theme-dark', isDark.value)
     root.classList.toggle('theme-light', !isDark.value)
