@@ -214,15 +214,36 @@ pub(crate) fn parse_translation_response_content(
     let content_without_thinking = thinking_regex.replace_all(content, "").to_string();
     let cleaned_content = clean_json_response(&content_without_thinking);
 
-    let translation_response: TranslationResponse = serde_json::from_str(&cleaned_content)
-        .map_err(|e| {
-            format!(
-                "Failed to parse translation JSON: {}. Response was: {}",
-                e, cleaned_content
-            )
-        })?;
+    match serde_json::from_str::<TranslationResponse>(&cleaned_content) {
+        Ok(translation_response) => Ok(translation_response.translations),
+        Err(err) => {
+            // Fallback: extract valid {"id": ..., "text": "..."} objects via regex in case JSON was truncated or malformed
+            let line_regex =
+                Regex::new(r#"(?s)\{\s*"id"\s*:\s*(\d+)\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}"#)
+                    .unwrap();
+            let mut extracted = Vec::new();
 
-    Ok(translation_response.translations)
+            for cap in line_regex.captures_iter(&content_without_thinking) {
+                if let (Some(id_match), Some(text_match)) = (cap.get(1), cap.get(2)) {
+                    if let Ok(id) = id_match.as_str().parse::<usize>() {
+                        let raw_text = text_match.as_str();
+                        let unescaped = serde_json::from_str::<String>(&format!("\"{}\"", raw_text))
+                            .unwrap_or_else(|_| raw_text.replace(r#"\n"#, "\n").replace(r#"\""#, "\""));
+                        extracted.push(TranslatedLine { id, text: unescaped });
+                    }
+                }
+            }
+
+            if !extracted.is_empty() {
+                Ok(extracted)
+            } else {
+                Err(format!(
+                    "Failed to parse translation JSON: {}. Response was: {}",
+                    err, cleaned_content
+                ))
+            }
+        }
+    }
 }
 
 fn text_from_content_value(value: &serde_json::Value) -> Option<String> {
@@ -486,6 +507,20 @@ after JSON"#;
         let error = parse_translation_response_content("not json").unwrap_err();
 
         assert!(error.contains("Failed to parse translation JSON"));
+    }
+
+    #[test]
+    fn parses_truncated_json_response_with_regex_fallback() {
+        let content = r#"```json
+{"translations": [{"id": 300, "text": "A Lenda da Batalha"}, {"id": 301, "text": "A Lenda da Batalha"}, {"id": 302"#;
+
+        let translations = parse_translation_response_content(content).unwrap();
+
+        assert_eq!(translations.len(), 2);
+        assert_eq!(translations[0].id, 300);
+        assert_eq!(translations[0].text, "A Lenda da Batalha");
+        assert_eq!(translations[1].id, 301);
+        assert_eq!(translations[1].text, "A Lenda da Batalha");
     }
 
     #[test]

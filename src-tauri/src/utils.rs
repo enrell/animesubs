@@ -380,6 +380,9 @@ replacement
 opening/ending song cues), leave it unchanged
 5. If a line contains only sound effects like "(笑)" or "♪", translate \
 the sound description appropriately
+6. Translate EACH line individually according to its own original text. \
+NEVER repeat the exact same translation for different dialogue lines unless \
+the source lines are identical.
 
 Example input:
 {{"lines": [{{"id": 0, "text": "Hello, how are you?"}}, {{"id": 1, "text": "I'm fine, thanks!"}}]}}
@@ -398,6 +401,8 @@ pub fn clean_json_response(content: &str) -> String {
     if trimmed.starts_with("```") {
         if let Some(first_line_end) = trimmed.find('\n') {
             trimmed = &trimmed[first_line_end + 1..];
+        } else if trimmed.starts_with("```json") {
+            trimmed = &trimmed[7..];
         } else {
             trimmed = trimmed.trim_start_matches('`').trim();
         }
@@ -405,6 +410,11 @@ pub fn clean_json_response(content: &str) -> String {
             trimmed = &trimmed[..last_fence];
         }
         trimmed = trimmed.trim();
+    }
+
+    // Strip leading "json " if present without fences
+    if trimmed.to_ascii_lowercase().starts_with("json") {
+        trimmed = trimmed[4..].trim_start();
     }
 
     if let Some(start) = trimmed.find('{') {
