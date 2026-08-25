@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SubtitleToolkitError};
 
-use super::{TranslationRequest, Translator};
+use super::{
+    TranslationLimits, TranslationRequest, Translator, provider_http_error,
+    provider_transport_error,
+};
 
 /// Translator backend that calls the [Google Cloud Translation v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate) endpoint.
 ///
@@ -35,10 +38,7 @@ impl GoogleTranslator {
     }
 
     /// Create a new translator with a custom base URL and API key.
-    pub fn with_base_url(
-        base_url: impl Into<String>,
-        api_key: impl Into<String>,
-    ) -> Result<Self> {
+    pub fn with_base_url(base_url: impl Into<String>, api_key: impl Into<String>) -> Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
@@ -56,12 +56,10 @@ impl Translator for GoogleTranslator {
     async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
         // Google v2 uses language codes like "pt", "en", "ja" — not "pt-BR".
         // We pass the target as-is; Google handles regional codes (e.g. "pt-BR" works).
+        let expected_count = request.source_text.lines().count();
         let response = self
             .client
-            .post(format!(
-                "{}/language/translate/v2",
-                self.base_url
-            ))
+            .post(format!("{}/language/translate/v2", self.base_url))
             .query(&[("key", &self.api_key)])
             .json(&GoogleTranslateRequest {
                 q: request.source_text.lines().collect(),
@@ -69,23 +67,26 @@ impl Translator for GoogleTranslator {
                 format: "text",
             })
             .send()
-            .await?;
+            .await
+            .map_err(|error| provider_transport_error("google", error))?;
 
         if !response.status().is_success() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "google",
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "request failed".into()),
-            });
+            return Err(provider_http_error("google", response).await);
         }
 
-        let body = response.json::<GoogleTranslateResponse>().await?;
-        if body.data.translations.is_empty() {
-            return Err(SubtitleToolkitError::Translation {
+        let body = response
+            .json::<GoogleTranslateResponse>()
+            .await
+            .map_err(|error| SubtitleToolkitError::Translation {
                 provider: "google",
-                message: "response contained no translations".into(),
+                message: format!("invalid response payload: {}", error.without_url()),
+            })?;
+        if body.data.translations.len() != expected_count {
+            return Err(SubtitleToolkitError::InvalidTranslation {
+                message: format!(
+                    "google returned {} translations for {expected_count} requested items",
+                    body.data.translations.len()
+                ),
             });
         }
         let translated = body
@@ -97,6 +98,18 @@ impl Translator for GoogleTranslator {
             .join("\n");
 
         Ok(translated)
+    }
+
+    fn identifier(&self) -> String {
+        format!("google:{}", self.base_url)
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        TranslationLimits {
+            max_items: 128,
+            max_request_bytes: 25 * 1024,
+            reject_unchanged_output: false,
+        }
     }
 }
 
@@ -211,7 +224,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .respond_with(
-                ResponseTemplate::new(403).set_body_string(r#"{"error": {"message": "Daily Limit Exceeded"}}"#),
+                ResponseTemplate::new(403)
+                    .set_body_string(r#"{"error": {"message": "Daily Limit Exceeded"}}"#),
             )
             .mount(&server)
             .await;
@@ -249,7 +263,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.to_string().contains("no translations"));
+        assert!(err.to_string().contains("0 translations for 1 requested"));
     }
 
     #[tokio::test]
@@ -306,5 +320,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(result, "<1> Zeile eins\n<2> Zeile zwei\n<3> Zeile drei");
+    }
+
+    #[test]
+    fn declares_google_item_limit() {
+        let translator = GoogleTranslator::new("test-key").unwrap();
+        assert_eq!(translator.limits().max_items, 128);
     }
 }

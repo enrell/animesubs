@@ -6,7 +6,7 @@ Guide for AI coding agents working on psyche-subtitle-toolkit.
 
 ```sh
 cargo check                                      # compilation check
-cargo test                                       # run all tests (115 unit + integration)
+cargo test                                       # run all unit, integration, binary, and doc tests
 cargo clippy --all-targets --all-features -- -D warnings  # strict lint
 cargo build --release                            # release binary
 cargo run -- inspect <mkv>                       # inspect MKV tracks
@@ -17,7 +17,7 @@ All commands run from the project root.
 
 ## Project Overview
 
-Rust crate + CLI that extracts ASS subtitles from MKV files, translates them via pluggable providers, and muxes the translation back in-place. Designed for Psyche but usable standalone.
+Rust crate + CLI that extracts ASS, SRT, WebVTT, and PGS subtitles from MKV files, translates them via pluggable providers, and muxes the translation back in-place. Designed for Psyche but usable standalone.
 
 **Key constraints:**
 - ASS, SRT, WebVTT, and PGS (via OCR) subtitle formats
@@ -146,22 +146,26 @@ mod tests {
 - Constructor returns `Result<Self>` (reqwest build can fail)
 - `with_base_url` for custom endpoints; `new` for defaults
 - Trim `.base_url` trailing slash
-- Error on non-200 with `SubtitleToolkitError::Translation { provider, message }`
+- Convert non-2xx responses with `provider_http_error` so status, retryability, and `Retry-After` are retained
+- Report transport failures with `provider_transport_error` so URLs containing credentials are not exposed
 - Trim whitespace from response text
 - Each provider owns its own prompt/request construction (no shared prompt module)
 
 ## Testing
 
-### Test Categories (115 tests total)
+### Test Categories (154 source tests plus doc-tests)
 
 | Category | Count | Location | What they test |
 |---|---|---|---|
-| Subtitle parsing | 19 | `subtitles/ass.rs` + `subtitles/srt.rs` + `subtitles/vtt.rs` | ASS + SRT + VTT parse + render |
-| Structured text | 15 | `subtitles/structured.rs` | Numbered format, tag strip/reinject, chunking |
-| Pipeline integration | 22 | `pipeline.rs` | Full subtitle processing, retry, dry-run, resume, concurrency, race condition regression with FakeTranslator |
-| Provider mocks | 6-7 each | `translation/*.rs` | HTTP contracts per provider |
+| Subtitle parsing | 21 | `subtitles/ass.rs` + `subtitles/srt.rs` + `subtitles/vtt.rs` | ASS + SRT + VTT parse, CRLF, metadata blocks, and render |
+| Structured text | 20 | `subtitles/structured.rs` | Numbered format, inline tag protection, byte/item chunking |
+| Pipeline and options | 39 | `pipeline.rs` | Processing, retry, resume manifests, crash-window safety, format regressions, concurrency, and limits |
+| Provider mocks | 44 | `translation/*.rs` | HTTP contracts, completion reasons, errors, and provider limits |
 | Doc-tests | 12 | `lib.rs` + provider files | Compile-check public examples |
-| OCR | 14 | `ocr.rs` | PGS display set rendering, text grouping, fragment repair, merging |
+| OCR | 17 | `ocr.rs` | Bounded PGS rendering, cache hashes, text grouping, repair, and merging |
+| Retry | 10 | `retry.rs` | Transient/permanent classification, long-running HTTP 503 retry budget, `Retry-After`, capped backoff, invalid output, and attempts |
+| Real MKV mux | 1 | `media/mkv.rs` | Synthetic `mkvmerge` round-trip preserving track metadata/order |
+| CLI parsing | 2 | `main.rs` | Preferred command name and backwards-compatible alias |
 
 ### Writing Provider Tests
 
@@ -200,17 +204,16 @@ Pipeline tests use `FakeTranslator` (defined in `pipeline.rs::tests`) that recor
 
 ### What Is NOT Tested
 
-- MKV file I/O (requires mkvmerge/mkvextract + test media)
-- CLI argument parsing (trivial clap derive)
+- Real PGS inference against a downloaded model and production `.sup` fixture
 - Real API calls (all providers use wiremock)
 
 ## Conventions
 
 - **Edition:** Rust 2024
-- **Safety:** `#![forbid(unsafe_code)]`
+- **Safety:** `#![deny(unsafe_code)]` at the crate root; no local unsafe exceptions
 - **Errors:** `thiserror` only, no `anyhow`
-- **Async:** `tokio` with `features = ["fs", "macros", "process", "rt-multi-thread"]`
-- **HTTP:** `reqwest` with `json` + `rustls-tls` features, no default features
+- **Async:** `tokio` with `fs`, `io-util`, `macros`, `process`, `rt-multi-thread`, `sync`, and `time`
+- **HTTP:** `reqwest` with `json`, `rustls-tls`, and `stream` features, no default features
 - **Lint:** `cargo clippy --all-targets --all-features -- -D warnings` must pass
 - **Format:** `cargo fmt` (default rustfmt)
 - **No unnecessary abstractions:** each provider is a standalone module, no factory/registry

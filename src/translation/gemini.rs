@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SubtitleToolkitError};
 
-use super::{TranslationRequest, Translator};
+use super::{
+    TranslationLimits, TranslationRequest, Translator, provider_http_error,
+    provider_transport_error,
+};
 
 /// Translator backend that calls the [Google Gemini](https://ai.google.dev/gemini-api/docs) `generateContent` endpoint.
 ///
@@ -73,6 +76,7 @@ impl Translator for GeminiTranslator {
                         text: "You are a subtitle translator. \
                                Translate the user text to the requested language. \
                                Preserve every numeric tag exactly, like <1>, <2>, <3>. \
+                               Preserve tokens such as [[PSY_TAG_0]] exactly and in order. \
                                Return only translated subtitle lines. \
                                Do not add explanations, markdown, notes, or code fences. \
                                Keep line breaks inside each subtitle when needed. \
@@ -89,43 +93,61 @@ impl Translator for GeminiTranslator {
                         ),
                     }],
                 }],
-                generation_config: GenerationConfig {
-                    temperature: 0.2,
-                },
+                generation_config: GenerationConfig { temperature: 0.2 },
             })
             .send()
-            .await?;
+            .await
+            .map_err(|error| provider_transport_error("gemini", error))?;
 
         if !response.status().is_success() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "gemini",
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "request failed".into()),
-            });
+            return Err(provider_http_error("gemini", response).await);
         }
 
         let body = response.json::<GenerateContentResponse>().await?;
-        let text = body
-            .candidates
-            .into_iter()
-            .next()
-            .ok_or_else(|| SubtitleToolkitError::Translation {
+        let candidate = body.candidates.into_iter().next().ok_or_else(|| {
+            SubtitleToolkitError::Translation {
                 provider: "gemini",
                 message: "response contained no candidates".into(),
-            })?
+            }
+        })?;
+        match candidate.finish_reason.as_deref() {
+            Some("STOP") => {}
+            Some(reason) => {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: format!("gemini response was incomplete (finishReason={reason})"),
+                });
+            }
+            None => {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: "gemini response omitted finishReason".into(),
+                });
+            }
+        }
+        let text = candidate
             .content
             .parts
             .into_iter()
-            .next()
-            .ok_or_else(|| SubtitleToolkitError::Translation {
+            .filter_map(|part| part.text)
+            .collect::<String>();
+        if text.trim().is_empty() {
+            return Err(SubtitleToolkitError::Translation {
                 provider: "gemini",
-                message: "response candidate contained no parts".into(),
-            })?
-            .text;
+                message: "response candidate contained no text parts".into(),
+            });
+        }
 
         Ok(text.trim().to_string())
+    }
+
+    fn identifier(&self) -> String {
+        format!("gemini:{}:{}", self.base_url, self.model)
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        TranslationLimits {
+            reject_unchanged_output: true,
+            ..TranslationLimits::default()
+        }
     }
 }
 
@@ -164,6 +186,8 @@ struct GenerateContentResponse {
 #[derive(Debug, Deserialize)]
 struct Candidate {
     content: CandidateContent,
+    #[serde(default, rename = "finishReason")]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -173,7 +197,8 @@ struct CandidateContent {
 
 #[derive(Debug, Deserialize)]
 struct CandidatePart {
-    text: String,
+    #[serde(default)]
+    text: Option<String>,
 }
 
 #[cfg(test)]
@@ -200,15 +225,14 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path_regex(r"/v1beta/models/.*:generateContent"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(gemini_response(
-                "<1> Olá\n<2> mundo",
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(gemini_response("<1> Olá\n<2> mundo")),
+            )
             .mount(&server)
             .await;
 
         let translator =
-            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash")
-                .unwrap();
+            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash").unwrap();
         let result = translator
             .translate(TranslationRequest {
                 source_text: "<1> hello\n<2> world",
@@ -250,15 +274,14 @@ mod tests {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(gemini_response(
-                "  <1> Olá  \n",
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(gemini_response("  <1> Olá  \n")),
+            )
             .mount(&server)
             .await;
 
         let translator =
-            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash")
-                .unwrap();
+            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash").unwrap();
         let result = translator
             .translate(TranslationRequest {
                 source_text: "<1> hello",
@@ -276,7 +299,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .respond_with(
-                ResponseTemplate::new(429).set_body_string(r#"{"error": {"message": "Quota exceeded"}}"#),
+                ResponseTemplate::new(429)
+                    .set_body_string(r#"{"error": {"message": "Quota exceeded"}}"#),
             )
             .mount(&server)
             .await;
@@ -307,8 +331,7 @@ mod tests {
             .await;
 
         let translator =
-            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash")
-                .unwrap();
+            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash").unwrap();
         let err = translator
             .translate(TranslationRequest {
                 source_text: "<1> hello",
@@ -335,8 +358,7 @@ mod tests {
             .await;
 
         let translator =
-            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash")
-                .unwrap();
+            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-2.0-flash").unwrap();
         let err = translator
             .translate(TranslationRequest {
                 source_text: "<1> hello",
@@ -345,6 +367,30 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.to_string().contains("no parts"));
+        assert!(err.to_string().contains("no text parts"));
+    }
+
+    #[tokio::test]
+    async fn rejects_max_tokens_finish_reason() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "candidates": [{
+                    "content": { "parts": [{ "text": "<1> partial" }] },
+                    "finishReason": "MAX_TOKENS"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let translator =
+            GeminiTranslator::with_base_url(server.uri(), "test-key", "gemini-test").unwrap();
+        let error = translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello",
+                target_language: "pt-BR",
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("finishReason=MAX_TOKENS"));
     }
 }

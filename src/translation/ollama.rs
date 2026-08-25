@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SubtitleToolkitError};
 
-use super::{TranslationRequest, Translator};
+use super::{
+    TranslationLimits, TranslationRequest, Translator, provider_http_error,
+    provider_transport_error,
+};
 
 /// Translator backend that calls the [Ollama](https://ollama.com) `/api/generate` endpoint.
 ///
@@ -56,20 +59,31 @@ impl Translator for OllamaTranslator {
                 stream: false,
             })
             .send()
-            .await?;
+            .await
+            .map_err(|error| provider_transport_error("ollama", error))?;
 
         if !response.status().is_success() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "ollama",
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "request failed".into()),
-            });
+            return Err(provider_http_error("ollama", response).await);
         }
 
         let body = response.json::<OllamaGenerateResponse>().await?;
+        if body.done != Some(true) {
+            return Err(SubtitleToolkitError::InvalidTranslation {
+                message: "ollama returned an incomplete non-streaming response".into(),
+            });
+        }
         Ok(body.response.trim().to_string())
+    }
+
+    fn identifier(&self) -> String {
+        format!("ollama:{}:{}", self.base_url, self.model)
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        TranslationLimits {
+            reject_unchanged_output: true,
+            ..TranslationLimits::default()
+        }
     }
 }
 
@@ -78,6 +92,7 @@ fn build_prompt(request: &TranslationRequest<'_>) -> String {
         "Translate the following subtitle dialogue to {target_language}.\n\n\
          Rules:\n\
          - Preserve every numeric tag exactly, like <1>, <2>, <3>.\n\
+         - Preserve tokens such as [[PSY_TAG_0]] exactly and in order.\n\
          - Return only translated subtitle lines.\n\
          - Do not add explanations, markdown, notes, or code fences.\n\
          - Keep line breaks inside each subtitle when needed.\n\
@@ -99,6 +114,8 @@ struct OllamaGenerateRequest<'a> {
 #[derive(Debug, Deserialize)]
 struct OllamaGenerateResponse {
     response: String,
+    #[serde(default)]
+    done: Option<bool>,
 }
 
 #[cfg(test)]
@@ -114,7 +131,8 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/generate"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "response": "<1> Olá\n<2> mundo"
+                "response": "<1> Olá\n<2> mundo",
+                "done": true
             })))
             .mount(&server)
             .await;
@@ -137,7 +155,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "response": "  <1> Olá  \n"
+                "response": "  <1> Olá  \n",
+                "done": true
             })))
             .mount(&server)
             .await;
@@ -183,7 +202,8 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/generate"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "response": "<1> ok"
+                "response": "<1> ok",
+                "done": true
             })))
             .expect(1)
             .mount(&server)
@@ -199,5 +219,26 @@ mod tests {
             .unwrap();
 
         // wiremock verifies the request was made once
+    }
+
+    #[tokio::test]
+    async fn rejects_incomplete_non_streaming_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "response": "<1> partial",
+                "done": false
+            })))
+            .mount(&server)
+            .await;
+        let translator = OllamaTranslator::with_base_url(server.uri(), "model").unwrap();
+        let error = translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello",
+                target_language: "pt-BR",
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("incomplete"));
     }
 }

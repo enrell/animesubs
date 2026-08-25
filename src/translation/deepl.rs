@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SubtitleToolkitError};
 
-use super::{TranslationRequest, Translator};
+use super::{
+    TranslationLimits, TranslationRequest, Translator, provider_http_error,
+    provider_transport_error,
+};
 
 /// Translator backend that calls the [DeepL](https://www.deepl.com) `/v2/translate` endpoint.
 ///
@@ -37,10 +40,7 @@ impl DeepLTranslator {
     ///
     /// Use `"https://api.deepl.com"` for the pro tier, or
     /// `"https://api-free.deepl.com"` for the free tier (default).
-    pub fn with_base_url(
-        base_url: impl Into<String>,
-        api_key: impl Into<String>,
-    ) -> Result<Self> {
+    pub fn with_base_url(base_url: impl Into<String>, api_key: impl Into<String>) -> Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
@@ -56,13 +56,11 @@ impl DeepLTranslator {
 #[async_trait::async_trait]
 impl Translator for DeepLTranslator {
     async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
+        let expected_count = request.source_text.lines().count();
         let response = self
             .client
             .post(format!("{}/v2/translate", self.base_url))
-            .header(
-                "Authorization",
-                format!("DeepL-Auth-Key {}", self.api_key),
-            )
+            .header("Authorization", format!("DeepL-Auth-Key {}", self.api_key))
             .json(&DeepLTranslateRequest {
                 text: request.source_text.lines().collect(),
                 target_lang: &request.target_language.to_uppercase(),
@@ -70,23 +68,20 @@ impl Translator for DeepLTranslator {
                 preserve_formatting: true,
             })
             .send()
-            .await?;
+            .await
+            .map_err(|error| provider_transport_error("deepl", error))?;
 
         if !response.status().is_success() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "deepl",
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "request failed".into()),
-            });
+            return Err(provider_http_error("deepl", response).await);
         }
 
         let body = response.json::<DeepLTranslateResponse>().await?;
-        if body.translations.is_empty() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "deepl",
-                message: "response contained no translations".into(),
+        if body.translations.len() != expected_count {
+            return Err(SubtitleToolkitError::InvalidTranslation {
+                message: format!(
+                    "deepl returned {} translations for {expected_count} requested items",
+                    body.translations.len()
+                ),
             });
         }
         let translated = body
@@ -97,6 +92,18 @@ impl Translator for DeepLTranslator {
             .join("\n");
 
         Ok(translated)
+    }
+
+    fn identifier(&self) -> String {
+        format!("deepl:{}", self.base_url)
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        TranslationLimits {
+            max_items: 200,
+            max_request_bytes: 120 * 1024,
+            reject_unchanged_output: false,
+        }
     }
 }
 
@@ -197,9 +204,7 @@ mod tests {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
-            .respond_with(
-                ResponseTemplate::new(403).set_body_string("Quota exceeded"),
-            )
+            .respond_with(ResponseTemplate::new(403).set_body_string("Quota exceeded"))
             .mount(&server)
             .await;
 
@@ -236,7 +241,7 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(err.to_string().contains("no translations"));
+        assert!(err.to_string().contains("0 translations for 1 requested"));
     }
 
     #[tokio::test]

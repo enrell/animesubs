@@ -4,6 +4,19 @@ use crate::error::{Result, SubtitleToolkitError};
 
 use super::model::{SubtitleCue, SubtitleDocument};
 
+const PROTECTED_TAG_PREFIX: &str = "[[PSY_TAG_";
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProtectedSpanMap {
+    spans: HashMap<usize, Vec<ProtectedSpan>>,
+}
+
+#[derive(Debug, Clone)]
+struct ProtectedSpan {
+    token: String,
+    original: String,
+}
+
 /// Serialize a subtitle document to numbered text for LLM translation.
 ///
 /// Each cue becomes `<id> text` on its own line. Internal newlines are
@@ -58,6 +71,15 @@ pub fn parse_numbered_text(text: &str, expected_ids: &[usize]) -> Result<BTreeMa
         if !parsed.contains_key(id) {
             return Err(SubtitleToolkitError::InvalidTranslation {
                 message: format!("missing id <{id}>"),
+            });
+        }
+    }
+
+    for (id, value) in &mut parsed {
+        *value = value.replace("\\N", "\n");
+        if value.trim().is_empty() {
+            return Err(SubtitleToolkitError::InvalidTranslation {
+                message: format!("empty translation for id <{id}>"),
             });
         }
     }
@@ -205,7 +227,10 @@ pub fn chunk_document(document: &SubtitleDocument, max_chars: usize) -> Vec<Subt
 ///
 /// This is an alternative to [`chunk_document`] that chunks by line count
 /// instead of character count, which is more predictable for LLM token usage.
-pub fn chunk_document_by_lines(document: &SubtitleDocument, max_lines: usize) -> Vec<SubtitleDocument> {
+pub fn chunk_document_by_lines(
+    document: &SubtitleDocument,
+    max_lines: usize,
+) -> Vec<SubtitleDocument> {
     if document.cues.is_empty() || max_lines == 0 {
         return vec![];
     }
@@ -217,6 +242,191 @@ pub fn chunk_document_by_lines(document: &SubtitleDocument, max_lines: usize) ->
             cues: chunk.to_vec(),
         })
         .collect()
+}
+
+/// Split a document while respecting both item-count and UTF-8 byte limits.
+pub fn chunk_document_with_limits(
+    document: &SubtitleDocument,
+    max_items: usize,
+    max_request_bytes: usize,
+) -> Result<Vec<SubtitleDocument>> {
+    if max_items == 0 || max_request_bytes == 0 {
+        return Err(SubtitleToolkitError::Translation {
+            provider: "pipeline",
+            message: "translation limits must be greater than zero".into(),
+        });
+    }
+
+    let mut chunks = Vec::new();
+    let mut current = Vec::new();
+    let mut current_bytes = 0usize;
+
+    for cue in &document.cues {
+        let line = format!("<{}> {}", cue.id, cue.text.replace('\n', "\\N"));
+        let line_bytes = line.len();
+        if line_bytes > max_request_bytes {
+            return Err(SubtitleToolkitError::InvalidTranslation {
+                message: format!(
+                    "cue <{}> is {} bytes, exceeding provider limit of {} bytes",
+                    cue.id, line_bytes, max_request_bytes
+                ),
+            });
+        }
+
+        let separator_bytes = usize::from(!current.is_empty());
+        if !current.is_empty()
+            && (current.len() >= max_items
+                || current_bytes + separator_bytes + line_bytes > max_request_bytes)
+        {
+            chunks.push(SubtitleDocument {
+                cues: std::mem::take(&mut current),
+            });
+            current_bytes = 0;
+        }
+
+        current_bytes += usize::from(!current.is_empty()) + line_bytes;
+        current.push(cue.clone());
+    }
+
+    if !current.is_empty() {
+        chunks.push(SubtitleDocument { cues: current });
+    }
+
+    Ok(chunks)
+}
+
+pub(crate) fn protect_ass_spans(
+    document: &SubtitleDocument,
+) -> (SubtitleDocument, ProtectedSpanMap) {
+    protect_spans(document, SpanSyntax::Ass)
+}
+
+pub(crate) fn protect_markup_spans(
+    document: &SubtitleDocument,
+) -> (SubtitleDocument, ProtectedSpanMap) {
+    protect_spans(document, SpanSyntax::Markup)
+}
+
+pub(crate) fn restore_protected_spans(
+    document: &mut SubtitleDocument,
+    span_map: &ProtectedSpanMap,
+) -> Result<()> {
+    for cue in &mut document.cues {
+        let Some(spans) = span_map.spans.get(&cue.id) else {
+            continue;
+        };
+
+        let mut previous_position = 0usize;
+        for span in spans {
+            let positions: Vec<usize> = cue
+                .text
+                .match_indices(&span.token)
+                .map(|(i, _)| i)
+                .collect();
+            if positions.len() != 1 {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: format!(
+                        "protected token {} for id <{}> occurred {} times",
+                        span.token,
+                        cue.id,
+                        positions.len()
+                    ),
+                });
+            }
+            if positions[0] < previous_position {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: format!("protected tokens were reordered for id <{}>", cue.id),
+                });
+            }
+            previous_position = positions[0] + span.token.len();
+        }
+
+        for span in spans {
+            cue.text = cue.text.replace(&span.token, &span.original);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum SpanSyntax {
+    Ass,
+    Markup,
+}
+
+fn protect_spans(
+    document: &SubtitleDocument,
+    syntax: SpanSyntax,
+) -> (SubtitleDocument, ProtectedSpanMap) {
+    let mut span_map = ProtectedSpanMap::default();
+    let cues = document
+        .cues
+        .iter()
+        .map(|cue| {
+            let (text, spans) = protect_text_spans(&cue.text, syntax);
+            if !spans.is_empty() {
+                span_map.spans.insert(cue.id, spans);
+            }
+            SubtitleCue { id: cue.id, text }
+        })
+        .collect();
+    (SubtitleDocument { cues }, span_map)
+}
+
+fn protect_text_spans(text: &str, syntax: SpanSyntax) -> (String, Vec<ProtectedSpan>) {
+    let mut output = String::with_capacity(text.len());
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+
+    while cursor < text.len() {
+        let remaining = &text[cursor..];
+        let start_offset = match syntax {
+            SpanSyntax::Ass => remaining.find("{\\"),
+            SpanSyntax::Markup => remaining.find('<'),
+        };
+        let Some(start_offset) = start_offset else {
+            output.push_str(remaining);
+            break;
+        };
+        let start = cursor + start_offset;
+        output.push_str(&text[cursor..start]);
+
+        let end = match syntax {
+            SpanSyntax::Ass => text[start..].find('}').map(|offset| start + offset + 1),
+            SpanSyntax::Markup => text[start..].find('>').map(|offset| start + offset + 1),
+        };
+        let Some(end) = end else {
+            output.push_str(&text[start..]);
+            break;
+        };
+
+        let original = &text[start..end];
+        if matches!(syntax, SpanSyntax::Markup) && !looks_like_markup_tag(original) {
+            output.push('<');
+            cursor = start + 1;
+            continue;
+        }
+
+        let token = format!("{PROTECTED_TAG_PREFIX}{}]]", spans.len());
+        output.push_str(&token);
+        spans.push(ProtectedSpan {
+            token,
+            original: original.to_string(),
+        });
+        cursor = end;
+    }
+
+    (output, spans)
+}
+
+fn looks_like_markup_tag(value: &str) -> bool {
+    value
+        .strip_prefix('<')
+        .and_then(|value| value.strip_suffix('>'))
+        .and_then(|value| value.trim_start().chars().next())
+        .is_some_and(|character| {
+            character == '/' || character.is_ascii_alphabetic() || character.is_ascii_digit()
+        })
 }
 
 #[cfg(test)]
@@ -248,6 +458,18 @@ mod tests {
 
         assert_eq!(parsed.get(&1).unwrap(), "olá\ncontinua");
         assert_eq!(parsed.get(&2).unwrap(), "mundo");
+    }
+
+    #[test]
+    fn decodes_serialized_hard_breaks() {
+        let parsed = parse_numbered_text(r"<1> linha um\Nlinha dois", &[1]).unwrap();
+        assert_eq!(parsed.get(&1).unwrap(), "linha um\nlinha dois");
+    }
+
+    #[test]
+    fn rejects_empty_translation_values() {
+        let error = parse_numbered_text("<1>   ", &[1]).unwrap_err();
+        assert!(error.to_string().contains("empty translation"));
     }
 
     #[test]
@@ -426,5 +648,63 @@ mod tests {
         let document = SubtitleDocument { cues: vec![] };
         let chunks = chunk_document(&document, 5000);
         assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn chunk_document_with_limits_respects_items_and_bytes() {
+        let document = SubtitleDocument {
+            cues: (1..=5)
+                .map(|id| SubtitleCue {
+                    id,
+                    text: "abcdefghij".into(),
+                })
+                .collect(),
+        };
+
+        let chunks = chunk_document_with_limits(&document, 2, 31).unwrap();
+        assert_eq!(
+            chunks
+                .iter()
+                .map(|chunk| chunk.cues.len())
+                .collect::<Vec<_>>(),
+            vec![2, 2, 1]
+        );
+        assert!(
+            chunks
+                .iter()
+                .all(|chunk| to_numbered_text(chunk).len() <= 31)
+        );
+    }
+
+    #[test]
+    fn protects_and_restores_inline_ass_tags() {
+        let document = SubtitleDocument {
+            cues: vec![SubtitleCue {
+                id: 1,
+                text: r"Hello {\i1}world{\i0}!".into(),
+            }],
+        };
+        let (mut protected, spans) = protect_ass_spans(&document);
+        assert_eq!(
+            protected.cues[0].text,
+            "Hello [[PSY_TAG_0]]world[[PSY_TAG_1]]!"
+        );
+        protected.cues[0].text = "OlÃ¡ [[PSY_TAG_0]]mundo[[PSY_TAG_1]]!".into();
+        restore_protected_spans(&mut protected, &spans).unwrap();
+        assert_eq!(protected.cues[0].text, r"OlÃ¡ {\i1}mundo{\i0}!");
+    }
+
+    #[test]
+    fn rejects_missing_protected_tag() {
+        let document = SubtitleDocument {
+            cues: vec![SubtitleCue {
+                id: 1,
+                text: "<i>Hello</i>".into(),
+            }],
+        };
+        let (mut protected, spans) = protect_markup_spans(&document);
+        protected.cues[0].text = "OlÃ¡ [[PSY_TAG_0]]".into();
+        let error = restore_protected_spans(&mut protected, &spans).unwrap_err();
+        assert!(error.to_string().contains("occurred 0 times"));
     }
 }

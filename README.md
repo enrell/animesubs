@@ -8,29 +8,31 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 
 - Extract ASS, SRT, WebVTT, and PGS subtitle tracks from MKV files via mkvmerge/mkvextract
 - Translate subtitle dialogue through 7 pluggable providers
-- Protect ASS override tags (`{\pos(...)}`, `{\an7}`, etc.) during translation
-- Automatic chunking (200 lines per request) for LLM context limits
+- Protect inline ASS, SRT, and WebVTT formatting during translation
+- Automatic chunking by each provider's item and UTF-8 byte limits
 - Concurrent chunk translation with configurable parallelism
-- Retry with exponential backoff on HTTP, provider, and malformed output errors
-- Mux translated subtitles back into the MKV, replacing the original track
+- Retry transient failures with `Retry-After`, exponential backoff, and jitter; HTTP 503 retries for up to 2 hours with a 60-second delay cap
+- Validate the candidate MKV and preserve track order, name, and flags before replacement
 - Process single files or entire directories
-- Translate standalone `.ass`, `.srt`, and `.vtt` files without MKV (via `translate-ass` subcommand)
-- OCR PGS bitmap subtitles via PaddleOCR PP-OCRv5 (auto-downloads models on first run)
-- Resume interrupted translations with `--resume`
+- Translate standalone `.ass`, `.srt`, and `.vtt` files without MKV (via `translate-subtitle`; `translate-ass` remains an alias)
+- OCR PGS bitmap subtitles via pinned, SHA-256-verified PaddleOCR PP-OCRv5 models
+- Resume interrupted translations with a versioned input/configuration manifest
 
 ## Supported Providers
 
 | Provider | Flag | Auth | `--parallel` | Notes |
 |----------|------|------|-------------|-------|
 | [Ollama](https://ollama.com) | `--provider ollama` | None | 3 | Default. Any Ollama model. |
-| [Anthropic](https://docs.anthropic.com) | `--provider anthropic` | `--api-key` | 2 | Messages API. Custom endpoint via `--anthropic-url`. |
-| [OpenAI](https://platform.openai.com) | `--provider openai` | `--api-key` | 2 | Compatible with any OpenAI-compatible API. |
-| [OpenRouter](https://openrouter.ai) | `--provider openrouter` | `--api-key` | 2 | 400+ models, including free models. |
-| [DeepL](https://www.deepl.com) | `--provider deepl` | `--api-key` | 5 | Free tier (500K chars/month) or pro tier. |
-| [Google Translate](https://cloud.google.com/translate) | `--provider google` | `--api-key` | 10 | v2 API. First 500K chars/month free. |
-| [Gemini](https://ai.google.dev/gemini-api/docs) | `--provider gemini` | `--api-key` | 2 | LLM-based. 1,500 req/day free on Flash models. |
+| [Anthropic](https://docs.anthropic.com) | `--provider anthropic` | environment or `--api-key` | 2 | Messages API. Custom endpoint via `--anthropic-url`. |
+| [OpenAI](https://platform.openai.com) | `--provider openai` | environment or `--api-key` | 2 | Compatible with OpenAI-style endpoints. |
+| [OpenRouter](https://openrouter.ai) | `--provider openrouter` | environment or `--api-key` | 2 | Unified hosted-model API. |
+| [DeepL](https://www.deepl.com) | `--provider deepl` | environment or `--api-key` | 5 | Free or pro endpoint. |
+| [Google Translate](https://cloud.google.com/translate) | `--provider google` | environment or `--api-key` | 10 | Translation v2 API. |
+| [Gemini](https://ai.google.dev/gemini-api/docs) | `--provider gemini` | environment or `--api-key` | 2 | `generateContent` API. |
 
 The `--parallel` column shows recommended concurrency for each provider.
+
+For credentials, prefer `PSYCHE_SUBTITLE_API_KEY` or the provider-specific variable: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPL_API_KEY`, `GOOGLE_API_KEY`, or `GEMINI_API_KEY`. `--api-key` remains available for compatibility but can be visible in shell history and process listings.
 
 ## Installation
 
@@ -56,7 +58,7 @@ cargo build --release
 psyche-subtitle-toolkit inspect episode.mkv
 ```
 
-Output shows all tracks with a `*` marking the selected ASS subtitle track:
+Output shows all tracks with a `*` marking the track that translation will auto-select:
 
 ```
 * track 2: type=subtitles codec=SubStationAlpha language=eng name=HIDIVE_English
@@ -69,33 +71,33 @@ Output shows all tracks with a `*` marking the selected ASS subtitle track:
 # Ollama (default, local)
 psyche-subtitle-toolkit translate --input episode.mkv --to pt-BR --model gemma4:31b-cloud
 
-# OpenAI
-psyche-subtitle-toolkit translate --provider openai --api-key sk-... --model gpt-4o-mini --input episode.mkv --to pt-BR
+# OpenAI (set OPENAI_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
+psyche-subtitle-toolkit translate --provider openai --model gpt-4o-mini --input episode.mkv --to pt-BR
 
 # DeepL (free tier)
-psyche-subtitle-toolkit translate --provider deepl --api-key YOUR_KEY --input episode.mkv --to pt-BR
+psyche-subtitle-toolkit translate --provider deepl --input episode.mkv --to pt-BR
 
 # Google Translate
-psyche-subtitle-toolkit translate --provider google --api-key YOUR_KEY --input episode.mkv --to pt
+psyche-subtitle-toolkit translate --provider google --input episode.mkv --to pt
 
 # Gemini
-psyche-subtitle-toolkit translate --provider gemini --api-key YOUR_KEY --model gemini-2.5-flash-lite --input episode.mkv --to pt-BR
+psyche-subtitle-toolkit translate --provider gemini --model gemini-2.5-flash-lite --input episode.mkv --to pt-BR
 
 # OpenRouter (free model)
-psyche-subtitle-toolkit translate --provider openrouter --api-key YOUR_KEY --model meta-llama/llama-3.3-70b-instruct:free --input episode.mkv --to pt-BR
+psyche-subtitle-toolkit translate --provider openrouter --model meta-llama/llama-3.3-70b-instruct:free --input episode.mkv --to pt-BR
 ```
 
 ### Translate standalone subtitle files
 
 ```sh
 # ASS file
-psyche-subtitle-toolkit translate-ass --input source.ass --output translated.ass --to pt-BR --provider deepl --api-key YOUR_KEY
+psyche-subtitle-toolkit translate-subtitle --input source.ass --output translated.ass --to pt-BR --provider deepl
 
 # SRT file (auto-detected by extension or content)
-psyche-subtitle-toolkit translate-ass --input source.srt --output translated.srt --to pt-BR --provider deepl --api-key YOUR_KEY
+psyche-subtitle-toolkit translate-subtitle --input source.srt --output translated.srt --to pt-BR --provider deepl
 
 # WebVTT file (auto-detected by extension or WEBVTT header)
-psyche-subtitle-toolkit translate-ass --input source.vtt --output translated.vtt --to pt-BR --provider deepl --api-key YOUR_KEY
+psyche-subtitle-toolkit translate-subtitle --input source.vtt --output translated.vtt --to pt-BR --provider deepl
 ```
 
 ### Resume interrupted translations
@@ -110,7 +112,7 @@ psyche-subtitle-toolkit translate --resume --provider ollama --input /media/anim
 psyche-subtitle-toolkit translate --resume --provider ollama --input /media/anime/ --to pt-BR
 ```
 
-Progress is saved to `.psyche-subtitle-toolkit-progress.json` in the input directory and auto-deleted when all files complete.
+Progress is saved to a versioned JSON manifest and auto-deleted when all files complete. It records the target, provider/model identity, track choice, canonical path, size, and modification time. Each file is marked pending before translation; if the MKV changes before the completion checkpoint is written, resume stops for manual inspection instead of risking a second remux. A stale manifest from a different run is rejected instead of silently mixing outputs.
 
 ### Full options
 
@@ -123,11 +125,10 @@ Progress is saved to `.psyche-subtitle-toolkit-progress.json` in the input direc
     --ollama-url <URL>       Ollama base URL [default: http://localhost:11434]
     --openai-url <URL>       OpenAI base URL [default: https://api.openai.com]
     --anthropic-url <URL>    Anthropic base URL [default: https://api.anthropic.com]
-    --api-key <KEY>          API key (required for openai, openrouter, anthropic, deepl, google, gemini)
+    --api-key <KEY>          API key; environment variables are preferred
     --deepl-url <URL>        DeepL base URL [default: https://api-free.deepl.com]
-    --keep-temp              Preserve extracted/translated ASS files
+    --keep-temp              Preserve extracted and translated subtitle files
     --dry-run                Show what would be translated without modifying files
-    --source-lang <LANG>     Source language code (e.g. en, ja)
     --resume                 Save progress and skip already-translated files on restart
     --parallel <N>           Max concurrent chunk translations [default: 1]
 ```
@@ -156,7 +157,6 @@ translate_mkv(
         track_id: None,
         keep_temp: false,
         dry_run: false,
-        source_language: Some("en".into()),
         resume: false,
         max_concurrent: 3,
     },
@@ -175,7 +175,7 @@ use psyche_subtitle_toolkit::{translate_ass, AssSubtitle, OllamaTranslator, Tran
 # async fn example() -> psyche_subtitle_toolkit::Result<()> {
 let ass = AssSubtitle::parse(&std::fs::read_to_string("source.ass")?)?;
 let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
-let translated = translate_ass(ass, "pt-BR", Some("en"), 1, translator).await?;
+let translated = translate_ass(ass, "pt-BR", 1, translator).await?;
 std::fs::write("translated.ass", translated.render())?;
 # Ok(())
 # }
@@ -204,20 +204,20 @@ impl Translator for MyTranslator {
 
 1. **Inspect** -- `mkvmerge -J` identifies tracks and selects the ASS, SRT, or VTT subtitle
 2. **Extract** -- `mkvextract tracks` pulls the ASS file to a temp directory
-3. **Parse** -- The ASS parser reads dialogue lines, preserving headers and styles
-4. **Strip tags** -- ASS override tags (`{\pos(...)}`, `{\an7}`) are removed and stored
-5. **Chunk** -- Cues are split into 200-line batches
+3. **Parse** -- The format parser preserves timing, styles, identifiers, and VTT metadata blocks
+4. **Protect tags** -- Inline formatting is replaced by validated opaque tokens
+5. **Chunk** -- Cues are split according to provider item and byte limits
 6. **Translate** -- Each chunk is sent to the provider as `<N> text` numbered lines (concurrent if `--parallel > 1`)
-7. **Retry** -- Failed chunks (HTTP errors, malformed output) are retried up to 3 times with exponential backoff
+7. **Retry** -- Only transient failures and malformed model output are retried; permanent 4xx errors fail immediately, while HTTP 503 keeps retrying for up to 2 hours with at most 60 seconds between attempts
 8. **Apply** -- Translated text is mapped back to cues by ID
-9. **Reinject tags** -- Original override tags are prepended back
-10. **Mux** -- `mkvmerge` replaces the original subtitle track in-place
+9. **Restore tags** -- Protected formatting is checked for presence/order and restored
+10. **Mux** -- A temporary MKV is inspected before a rollback-capable replacement
 
 ## Testing
 
 ```sh
-cargo test           # 115 unit + 12 doc-tests
-cargo clippy -- -D warnings
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 Provider tests use `wiremock` to mock HTTP endpoints -- no real API calls.

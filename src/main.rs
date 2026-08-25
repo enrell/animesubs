@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use psyche_subtitle_toolkit::media::mkv::{inspect_mkv, select_ass_track};
 use psyche_subtitle_toolkit::AssSubtitle;
+use psyche_subtitle_toolkit::media::mkv::{inspect_mkv, select_subtitle_track};
 use psyche_subtitle_toolkit::pipeline::{TranslateMkvOptions, translate_ass, translate_mkv};
 use psyche_subtitle_toolkit::translation::Translator;
 use psyche_subtitle_toolkit::translation::anthropic::AnthropicTranslator;
@@ -33,7 +33,11 @@ enum Command {
         #[arg(long)]
         to: String,
 
-        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini")]
+        #[arg(
+            long,
+            default_value = "ollama",
+            help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini"
+        )]
         provider: String,
 
         #[arg(long)]
@@ -45,16 +49,31 @@ enum Command {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
 
-        #[arg(long, help = "API key (required for openai, openrouter, anthropic, deepl, google, and gemini providers)")]
+        #[arg(
+            long,
+            help = "API key; prefer PSYCHE_SUBTITLE_API_KEY or the provider-specific environment variable"
+        )]
         api_key: Option<String>,
 
-        #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
+        #[arg(
+            long,
+            default_value = "https://api-free.deepl.com",
+            help = "DeepL API base URL (free or pro tier)"
+        )]
         deepl_url: String,
 
-        #[arg(long, default_value = "https://api.openai.com", help = "OpenAI API base URL (any OpenAI-compatible endpoint)")]
+        #[arg(
+            long,
+            default_value = "https://api.openai.com",
+            help = "OpenAI API base URL (any OpenAI-compatible endpoint)"
+        )]
         openai_url: String,
 
-        #[arg(long, default_value = "https://api.anthropic.com", help = "Anthropic API base URL")]
+        #[arg(
+            long,
+            default_value = "https://api.anthropic.com",
+            help = "Anthropic API base URL"
+        )]
         anthropic_url: String,
 
         #[arg(long)]
@@ -63,12 +82,20 @@ enum Command {
         #[arg(long, help = "Show what would be translated without modifying files")]
         dry_run: bool,
 
-        #[arg(long, help = "Save progress and skip already-translated files on restart")]
+        #[arg(
+            long,
+            help = "Save progress and skip already-translated files on restart"
+        )]
         resume: bool,
 
-        #[arg(long, default_value = "1", help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, openai/openrouter/gemini: 2)")]
+        #[arg(
+            long,
+            default_value = "1",
+            help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, openai/openrouter/gemini: 2)"
+        )]
         parallel: usize,
     },
+    #[command(name = "translate-subtitle", alias = "translate-ass")]
     TranslateAss {
         #[arg(short, long)]
         input: PathBuf,
@@ -79,7 +106,11 @@ enum Command {
         #[arg(long)]
         to: String,
 
-        #[arg(long, default_value = "ollama", help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini")]
+        #[arg(
+            long,
+            default_value = "ollama",
+            help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini"
+        )]
         provider: String,
 
         #[arg(long, default_value = "llama3.1")]
@@ -88,16 +119,31 @@ enum Command {
         #[arg(long, default_value = "http://localhost:11434")]
         ollama_url: String,
 
-        #[arg(long, help = "API key (required for openai, openrouter, anthropic, deepl, google, and gemini providers)")]
+        #[arg(
+            long,
+            help = "API key; prefer PSYCHE_SUBTITLE_API_KEY or the provider-specific environment variable"
+        )]
         api_key: Option<String>,
 
-        #[arg(long, default_value = "https://api-free.deepl.com", help = "DeepL API base URL (free or pro tier)")]
+        #[arg(
+            long,
+            default_value = "https://api-free.deepl.com",
+            help = "DeepL API base URL (free or pro tier)"
+        )]
         deepl_url: String,
 
-        #[arg(long, default_value = "https://api.openai.com", help = "OpenAI API base URL (any OpenAI-compatible endpoint)")]
+        #[arg(
+            long,
+            default_value = "https://api.openai.com",
+            help = "OpenAI API base URL (any OpenAI-compatible endpoint)"
+        )]
         openai_url: String,
 
-        #[arg(long, default_value = "https://api.anthropic.com", help = "Anthropic API base URL")]
+        #[arg(
+            long,
+            default_value = "https://api.anthropic.com",
+            help = "Anthropic API base URL"
+        )]
         anthropic_url: String,
     },
 }
@@ -120,46 +166,40 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             openai_url,
             anthropic_url,
         } => {
-            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, &anthropic_url, api_key)?;
+            let translator = build_translator(
+                &provider,
+                &model,
+                &ollama_url,
+                &deepl_url,
+                &openai_url,
+                &anthropic_url,
+                api_key,
+            )?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
 
             // Detect format: extension first, then content
             let ext = input.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let is_vtt = ext.eq_ignore_ascii_case("vtt") || source.trim_start().starts_with("WEBVTT");
-            let is_srt = !is_vtt && (ext.eq_ignore_ascii_case("srt")
-                || (!source.trim_start().starts_with('[') && source.contains("-->")));
+            let is_vtt =
+                ext.eq_ignore_ascii_case("vtt") || source.trim_start().starts_with("WEBVTT");
+            let is_srt = !is_vtt
+                && (ext.eq_ignore_ascii_case("srt")
+                    || (!source.trim_start().starts_with('[') && source.contains("-->")));
 
             if is_vtt {
                 let vtt = psyche_subtitle_toolkit::VttSubtitle::parse(&source)?;
-                let translated = psyche_subtitle_toolkit::translate_vtt(
-                    vtt,
-                    &to,
-                    1,
-                    translator,
-                )
-                .await?;
+                let translated =
+                    psyche_subtitle_toolkit::translate_vtt(vtt, &to, 1, translator).await?;
                 tokio::fs::write(&output, translated.render()).await?;
             } else if is_srt {
                 let srt = psyche_subtitle_toolkit::SrtSubtitle::parse(&source)?;
-                let translated = psyche_subtitle_toolkit::translate_srt(
-                    srt,
-                    &to,
-                    1,
-                    translator,
-                )
-                .await?;
+                let translated =
+                    psyche_subtitle_toolkit::translate_srt(srt, &to, 1, translator).await?;
                 tokio::fs::write(&output, translated.render()).await?;
             } else {
                 let ass = AssSubtitle::parse(&source)?;
-                let translated = translate_ass(
-                    ass,
-                    &to,
-                    1,
-                    translator,
-                )
-                .await?;
+                let translated = translate_ass(ass, &to, 1, translator).await?;
                 tokio::fs::write(&output, translated.render()).await?;
             }
             eprintln!("[translate-ass] written to {}", output.display());
@@ -181,7 +221,15 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             resume,
             parallel,
         } => {
-            let translator = build_translator(&provider, &model, &ollama_url, &deepl_url, &openai_url, &anthropic_url, api_key)?;
+            let translator = build_translator(
+                &provider,
+                &model,
+                &ollama_url,
+                &deepl_url,
+                &openai_url,
+                &anthropic_url,
+                api_key,
+            )?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             translate_mkv(
@@ -215,61 +263,33 @@ fn build_translator(
             ollama_url, model,
         )?)),
         "openai" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "openai",
-                    message: "--api-key is required for the openai provider".into(),
-                }
-            })?;
+            let key = require_api_key("openai", api_key)?;
             Ok(Box::new(OpenAiTranslator::with_base_url(
                 openai_url, key, model,
             )?))
         }
         "openrouter" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "openrouter",
-                    message: "--api-key is required for the openrouter provider".into(),
-                }
-            })?;
+            let key = require_api_key("openrouter", api_key)?;
             Ok(Box::new(OpenRouterTranslator::new(key, model)?))
         }
         "anthropic" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "anthropic",
-                    message: "--api-key is required for the anthropic provider".into(),
-                }
-            })?;
+            let key = require_api_key("anthropic", api_key)?;
             Ok(Box::new(AnthropicTranslator::with_base_url(
-                anthropic_url, key, model,
+                anthropic_url,
+                key,
+                model,
             )?))
         }
         "deepl" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "deepl",
-                    message: "--api-key is required for the deepl provider".into(),
-                }
-            })?;
+            let key = require_api_key("deepl", api_key)?;
             Ok(Box::new(DeepLTranslator::with_base_url(deepl_url, key)?))
         }
         "google" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "google",
-                    message: "--api-key is required for the google provider".into(),
-                }
-            })?;
+            let key = require_api_key("google", api_key)?;
             Ok(Box::new(GoogleTranslator::new(key)?))
         }
         "gemini" => {
-            let key = api_key.ok_or_else(|| {
-                psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
-                    provider: "gemini",
-                    message: "--api-key is required for the gemini provider".into(),
-                }
-            })?;
+            let key = require_api_key("gemini", api_key)?;
             Ok(Box::new(GeminiTranslator::new(key, model)?))
         }
         unknown => Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
@@ -281,24 +301,49 @@ fn build_translator(
     }
 }
 
+/// Returns the API key or a `SubtitleToolkitError::Translation` reporting which
+/// provider required it. Used by all non-Ollama providers in [`build_translator`].
+fn require_api_key(
+    provider: &'static str,
+    api_key: Option<String>,
+) -> psyche_subtitle_toolkit::Result<String> {
+    let provider_env = match provider {
+        "openai" => "OPENAI_API_KEY",
+        "openrouter" => "OPENROUTER_API_KEY",
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "deepl" => "DEEPL_API_KEY",
+        "google" => "GOOGLE_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
+        _ => "PSYCHE_SUBTITLE_API_KEY",
+    };
+    api_key
+        .or_else(|| nonempty_env("PSYCHE_SUBTITLE_API_KEY"))
+        .or_else(|| nonempty_env(provider_env))
+        .ok_or_else(|| psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+        provider,
+        message: format!(
+            "an API key is required for {provider}; set PSYCHE_SUBTITLE_API_KEY or {provider_env}"
+        ),
+    })
+}
+
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
 async fn inspect(input: PathBuf) -> psyche_subtitle_toolkit::Result<()> {
     let info = inspect_mkv(&input).await?;
+    let selected_id = select_subtitle_track(&info, None).map(|(track, _)| track.id);
 
     for track in &info.tracks {
-        let marker = if track.is_ass_subtitle()
-            || track.is_srt_subtitle()
-            || track.is_vtt_subtitle()
-            || track.is_pgs_subtitle()
-        {
+        let marker = if selected_id == Some(track.id) {
             "*"
         } else {
             " "
         };
-        let name = track
-            .properties
-            .track_name
-            .as_deref()
-            .unwrap_or_default();
+        let name = track.properties.track_name.as_deref().unwrap_or_default();
         println!(
             "{} track {}: type={} codec={} language={} name={}",
             marker,
@@ -310,9 +355,49 @@ async fn inspect(input: PathBuf) -> psyche_subtitle_toolkit::Result<()> {
         );
     }
 
-    if let Some(track) = select_ass_track(&info, None) {
-        eprintln!("\nAuto-selected track {} for translation", track.id);
+    if let Some((track, format)) = select_subtitle_track(&info, None) {
+        println!(
+            "\nAuto-selected track {} ({format:?}) for translation",
+            track.id
+        );
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_translate_ass_alias_still_parses() {
+        let cli = Cli::try_parse_from([
+            "psyche-subtitle-toolkit",
+            "translate-ass",
+            "--input",
+            "source.srt",
+            "--output",
+            "translated.srt",
+            "--to",
+            "pt-BR",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::TranslateAss { .. }));
+    }
+
+    #[test]
+    fn preferred_translate_subtitle_name_parses() {
+        let cli = Cli::try_parse_from([
+            "psyche-subtitle-toolkit",
+            "translate-subtitle",
+            "--input",
+            "source.vtt",
+            "--output",
+            "translated.vtt",
+            "--to",
+            "pt-BR",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::TranslateAss { .. }));
+    }
 }

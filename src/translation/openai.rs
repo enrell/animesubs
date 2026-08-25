@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SubtitleToolkitError};
 
-use super::{TranslationRequest, Translator};
+use super::{
+    TranslationLimits, TranslationRequest, Translator, provider_http_error,
+    provider_transport_error,
+};
 
 /// Translator backend that calls the [OpenAI](https://platform.openai.com) `/v1/chat/completions` endpoint.
 ///
@@ -71,32 +74,53 @@ impl Translator for OpenAiTranslator {
                 stream: false,
             })
             .send()
-            .await?;
+            .await
+            .map_err(|error| provider_transport_error("openai", error))?;
 
         if !response.status().is_success() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "openai",
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "request failed".into()),
-            });
+            return Err(provider_http_error("openai", response).await);
         }
 
         let body = response.json::<ChatCompletionResponse>().await?;
-        let content = body
+        let choice = body
             .choices
             .first()
             .ok_or_else(|| SubtitleToolkitError::Translation {
                 provider: "openai",
                 message: "response contained no choices".into(),
-            })?
-            .message
-            .content
-            .trim()
-            .to_string();
+            })?;
+        match choice.finish_reason.as_deref() {
+            Some("stop") => {}
+            Some(reason) => {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: format!("openai response was incomplete (finish_reason={reason})"),
+                });
+            }
+            None => {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: "openai response omitted finish_reason".into(),
+                });
+            }
+        }
+        let content = choice.message.content.trim().to_string();
 
         Ok(content)
+    }
+
+    fn identifier(&self) -> String {
+        format!("openai:{}:{}", self.base_url, self.model)
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        TranslationLimits {
+            // Long numbered outputs are substantially more likely to be truncated or
+            // malformed than similarly sized inputs, especially on compatible gateways.
+            // Keep this conservative because free compatible models often have lower
+            // output throughput than their input context would suggest.
+            max_items: 20,
+            max_request_bytes: 16 * 1024,
+            reject_unchanged_output: true,
+        }
     }
 }
 
@@ -106,6 +130,7 @@ fn build_messages(request: &TranslationRequest<'_>) -> Vec<ChatMessage> {
             role: "system",
             content: "You are a subtitle translator. You translate subtitle dialogue while \
                       preserving numbered tags exactly. Return only the translated lines. \
+                      Preserve tokens such as [[PSY_TAG_0]] exactly and in order. \
                       Do not add explanations, markdown, notes, or code fences. \
                       Do not add curly-brace commands or backslash formatting."
                 .into(),
@@ -146,6 +171,8 @@ struct ChatCompletionResponse {
 #[derive(Debug, Deserialize)]
 struct ChatChoice {
     message: ChatChoiceMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,6 +186,15 @@ mod tests {
     use wiremock::matchers::{header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    #[test]
+    fn declares_conservative_structured_output_limits() {
+        let translator = OpenAiTranslator::new("test-key", "test-model").unwrap();
+        let limits = translator.limits();
+        assert_eq!(limits.max_items, 20);
+        assert_eq!(limits.max_request_bytes, 16 * 1024);
+        assert!(limits.reject_unchanged_output);
+    }
+
     #[tokio::test]
     async fn translates_numbered_text() {
         let server = MockServer::start().await;
@@ -167,7 +203,8 @@ mod tests {
             .and(path("/v1/chat/completions"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "choices": [{
-                    "message": { "content": "<1> Olá\n<2> mundo" }
+                    "message": { "content": "<1> Olá\n<2> mundo" },
+                    "finish_reason": "stop"
                 }]
             })))
             .mount(&server)
@@ -193,7 +230,10 @@ mod tests {
         Mock::given(method("POST"))
             .and(header("Authorization", "Bearer sk-my-key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "choices": [{ "message": { "content": "<1> ok" } }]
+                "choices": [{
+                    "message": { "content": "<1> ok" },
+                    "finish_reason": "stop"
+                }]
             })))
             .mount(&server)
             .await;
@@ -255,5 +295,29 @@ mod tests {
             .unwrap_err();
 
         assert!(err.to_string().contains("no choices"));
+    }
+
+    #[tokio::test]
+    async fn rejects_token_limited_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "choices": [{
+                    "message": { "content": "<1> partial" },
+                    "finish_reason": "length"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let translator =
+            OpenAiTranslator::with_base_url(server.uri(), "sk-test", "gpt-test").unwrap();
+        let error = translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello",
+                target_language: "pt-BR",
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("finish_reason=length"));
     }
 }

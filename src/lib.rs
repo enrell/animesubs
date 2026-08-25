@@ -1,6 +1,6 @@
 //! # psyche-subtitle-toolkit
 //!
-//! Extract, translate, and mux ASS subtitles in MKV files.
+//! Extract, translate, and mux ASS, SRT, WebVTT, and PGS subtitles in MKV files.
 //! Usable as a standalone CLI or library for media server integration.
 //!
 //! No cloud required. No telemetry. Every translation provider is opt-in.
@@ -79,20 +79,18 @@
 //!
 //! ## Pipeline overview
 //!
-//! 1. **Inspect** — `mkvmerge -J` identifies tracks, selects the ASS subtitle
-//! 2. **Extract** — `mkvextract tracks` pulls the ASS file to a temp directory
-//! 3. **Parse** — ASS parser reads dialogue lines, preserving headers and styles
-//! 4. **Strip tags** — Override tags (`{\pos(...)}`, `{\an7}`) removed and stored
-//! 5. **Chunk** — Cues split into 200-line batches
+//! 1. **Inspect** — `mkvmerge -J` identifies and selects a supported subtitle
+//! 2. **Extract** — `mkvextract tracks` extracts the selected subtitle
+//! 3. **Parse** — format-specific parsers preserve timing, styles, and metadata blocks
+//! 4. **Protect tags** — inline ASS/VTT/SRT formatting becomes validated tokens
+//! 5. **Chunk** — cues are split according to provider item and byte limits
 //! 6. **Translate** — Each chunk sent to the provider (concurrent if `max_concurrent > 1`)
-//! 7. **Retry** — Failed chunks retried up to 3 times with exponential backoff
+//! 7. **Retry** — transient failures honor `Retry-After` and use jittered backoff
 //! 8. **Apply** — Translated text mapped back to cues by ID
-//! 9. **Reinject tags** — Original override tags prepended back
-//! 10. **Mux** — `mkvmerge` replaces the original subtitle track in-place
+//! 9. **Restore tags** — protected inline spans are validated and restored
+//! 10. **Mux** — a validated candidate preserves track order and metadata before commit
 
 #![deny(unsafe_code)]
-// SAFETY: ocr.rs uses libc::dup/dup2 to suppress MNN runtime stderr diagnostics.
-// This is the only unsafe block in the crate.
 
 /// Error types for the subtitle toolkit.
 pub mod error;
@@ -128,13 +126,13 @@ pub use pipeline::{
 
 // Subtitle model
 pub use subtitles::ass::AssSubtitle;
-pub use subtitles::srt::SrtSubtitle;
-pub use subtitles::vtt::VttSubtitle;
 pub use subtitles::model::{SubtitleCue, SubtitleDocument};
+pub use subtitles::srt::SrtSubtitle;
 pub use subtitles::structured::{
-    apply_translation, chunk_document, chunk_document_by_lines, parse_numbered_text,
-    reinject_tags, strip_tags, to_numbered_text,
+    apply_translation, chunk_document, chunk_document_by_lines, chunk_document_with_limits,
+    parse_numbered_text, reinject_tags, strip_tags, to_numbered_text,
 };
+pub use subtitles::vtt::VttSubtitle;
 
 // Translation providers
 pub use translation::anthropic::AnthropicTranslator;
@@ -144,4 +142,4 @@ pub use translation::google::GoogleTranslator;
 pub use translation::ollama::OllamaTranslator;
 pub use translation::openai::OpenAiTranslator;
 pub use translation::openrouter::OpenRouterTranslator;
-pub use translation::{TranslationRequest, Translator};
+pub use translation::{TranslationLimits, TranslationRequest, Translator};

@@ -39,12 +39,12 @@ impl SrtSubtitle {
     ///
     /// Cue IDs are assigned sequentially starting from 1.
     pub fn parse(input: &str) -> Result<Self> {
+        let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
         let mut cues = Vec::new();
         let mut doc_cues = Vec::new();
         let mut next_id = 1;
 
-        // Split on blank lines (one or more)
-        let blocks: Vec<&str> = input.split("\n\n").collect();
+        let blocks = split_blank_line_blocks(&normalized);
 
         for block in &blocks {
             let trimmed = block.trim();
@@ -59,11 +59,12 @@ impl SrtSubtitle {
 
             // First line should be the index number
             let index_line = lines[0].trim();
-            let _parsed_index: usize = index_line.parse().map_err(|_| {
-                SubtitleToolkitError::SrtParse {
-                    message: format!("expected numeric index, got: {index_line}"),
-                }
-            })?;
+            let _parsed_index: usize =
+                index_line
+                    .parse()
+                    .map_err(|_| SubtitleToolkitError::SrtParse {
+                        message: format!("expected numeric index, got: {index_line}"),
+                    })?;
 
             // Second line should be the timestamp
             let timestamp = lines[1].trim();
@@ -75,6 +76,11 @@ impl SrtSubtitle {
 
             // Remaining lines are the subtitle text
             let text = lines[2..].join("\n");
+            if text.trim().is_empty() {
+                return Err(SubtitleToolkitError::SrtParse {
+                    message: format!("cue {index_line} contains no subtitle text"),
+                });
+            }
 
             let id = next_id;
             next_id += 1;
@@ -129,6 +135,25 @@ impl SrtSubtitle {
     }
 }
 
+fn split_blank_line_blocks(input: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut current = Vec::new();
+    for line in input.lines() {
+        if line.trim().is_empty() {
+            if !current.is_empty() {
+                blocks.push(current.join("\n"));
+                current.clear();
+            }
+        } else {
+            current.push(line);
+        }
+    }
+    if !current.is_empty() {
+        blocks.push(current.join("\n"));
+    }
+    blocks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,7 +169,8 @@ mod tests {
 
     #[test]
     fn parses_multiple_cues() {
-        let input = "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n";
+        let input =
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n";
         let srt = SrtSubtitle::parse(input).unwrap();
         assert_eq!(srt.document().cues.len(), 2);
         assert_eq!(srt.document().cues[0].text, "Hello");
@@ -160,6 +186,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_windows_crlf_blocks() {
+        let input = "1\r\n00:00:01,000 --> 00:00:02,000\r\nLine one\r\nLine two\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nWorld\r\n";
+        let srt = SrtSubtitle::parse(input).unwrap();
+        assert_eq!(srt.document().cues.len(), 2);
+        assert_eq!(srt.document().cues[0].text, "Line one\nLine two");
+        assert!(srt.render().contains("Line one\nLine two"));
+    }
+
+    #[test]
     fn renders_round_trip() {
         let input = "1\n00:00:01,000 --> 00:00:02,000\nHello world\n\n2\n00:00:03,000 --> 00:00:04,000\nGoodbye\n";
         let srt = SrtSubtitle::parse(input).unwrap();
@@ -171,7 +206,8 @@ mod tests {
 
     #[test]
     fn render_uses_translated_text() {
-        let input = "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n";
+        let input =
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n";
         let mut srt = SrtSubtitle::parse(input).unwrap();
         srt.document_mut().replace_text(1, "Olá".to_string());
         srt.document_mut().replace_text(2, "Mundo".to_string());

@@ -1,0 +1,4 @@
+# ocr-rs 2.2.x ships the Windows MNN prebuilt with MSVC's static /MT runtime.
+# Matching it avoids mixing allocator/runtime families across the native FFI boundary.
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

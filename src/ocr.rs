@@ -5,22 +5,23 @@
 //!
 //! Ported from [shinkai-translator](https://github.com/enrell/shinkai-translator).
 
-use std::cmp::{max, min, Ordering};
+use std::cmp::{Ordering, max, min};
 use std::collections::HashMap;
 use std::env;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use std::time::Duration;
 
 use image::imageops::{FilterType, crop_imm, resize};
 use image::{DynamicImage, Rgb, RgbImage, RgbaImage};
 use ocr_rs::{OcrEngine, TextBox};
-use pgs_rs::parse_pgs;
 use pgs_rs::parse::{
     CompositionObject, CompositionState, ObjectDefinition, PaletteDefinition, Pgs, SegmentContents,
 };
+use pgs_rs::parse_pgs;
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::error::{Result, SubtitleToolkitError};
 
@@ -30,6 +31,10 @@ const DEFAULT_LAST_CUE_DURATION_PTS: u32 = 180_000;
 const MAX_CONTINUATION_GAP_PTS: u32 = 45_000;
 const PTS_PER_MILLISECOND: u64 = 90;
 const MIN_ALPHA: u8 = 8;
+const MAX_PGS_PIXELS: usize = 33_177_600;
+const MAX_PGS_FILE_BYTES: u64 = 512 * 1024 * 1024;
+const OCR_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+static DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// OCR language profile for PaddleOCR models.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +66,10 @@ pub struct OcrConfig {
     pub language: OcrLanguage,
     /// Custom model cache directory. If `None`, uses `~/.cache/psyche-subtitle-toolkit/`.
     pub model_cache_dir: Option<PathBuf>,
+    /// Language metadata from the selected MKV stream (for example `eng`).
+    pub stream_language: Option<String>,
+    /// Optional human-readable source language hint.
+    pub source_language_hint: Option<String>,
 }
 
 impl Default for OcrConfig {
@@ -68,6 +77,8 @@ impl Default for OcrConfig {
         Self {
             language: OcrLanguage::Auto,
             model_cache_dir: env::var(OCR_MODEL_DIR_ENV_VAR).ok().map(PathBuf::from),
+            stream_language: None,
+            source_language_hint: None,
         }
     }
 }
@@ -82,6 +93,8 @@ enum ResolvedOcrProfile {
 struct ModelArtifact {
     file_name: &'static str,
     url: &'static str,
+    size: u64,
+    sha256: &'static str,
 }
 
 #[derive(Clone, Debug)]
@@ -155,7 +168,11 @@ impl ResolvedDisplaySet<'_> {
 ///
 /// Models are auto-downloaded on first run to the cache directory.
 pub async fn ocr_pgs_to_srt(sup_path: &Path, config: &OcrConfig) -> Result<String> {
-    let profile = resolve_profile(config.language, None, None);
+    let profile = resolve_profile(
+        config.language,
+        config.stream_language.as_deref(),
+        config.source_language_hint.as_deref(),
+    );
     let model_paths = ensure_models(config, profile).await?;
     let sup_path = sup_path.to_path_buf();
 
@@ -166,55 +183,25 @@ pub async fn ocr_pgs_to_srt(sup_path: &Path, config: &OcrConfig) -> Result<Strin
         })?
 }
 
-/// Initialize an [`OcrEngine`], suppressing the MNN runtime diagnostic lines
-/// that the native C++ library writes to stderr.
-///
-/// # Safety
-///
-/// Uses `libc::dup`/`dup2` to temporarily redirect stderr to `/dev/null`.
-/// The original stderr is always restored, even on error.
-#[allow(unsafe_code)]
-fn new_ocr_engine_quiet(
-    detection: &Path,
-    recognition: &Path,
-    charset: &Path,
-) -> Result<OcrEngine> {
-    #[cfg(unix)]
-    {
-        use std::fs::File;
-
-        let stderr_fd = std::io::stderr().as_raw_fd();
-        let saved_fd = unsafe { libc::dup(stderr_fd) };
-        let devnull = File::open("/dev/null").map_err(|error| SubtitleToolkitError::Ocr {
-            message: format!("failed to open /dev/null: {error}"),
-        })?;
-        unsafe { libc::dup2(devnull.as_raw_fd(), stderr_fd) };
-
-        let result = OcrEngine::new(detection, recognition, charset, None).map_err(|error| {
-            SubtitleToolkitError::Ocr {
-                message: format!("failed to initialize PaddleOCR engine: {error}"),
-            }
-        });
-
-        unsafe {
-            libc::dup2(saved_fd, stderr_fd);
-            libc::close(saved_fd);
+/// Initialize an [`OcrEngine`]. Native runtime diagnostics are left untouched:
+/// redirecting process-global stderr is not thread-safe for a library.
+fn new_ocr_engine_quiet(detection: &Path, recognition: &Path, charset: &Path) -> Result<OcrEngine> {
+    OcrEngine::new(detection, recognition, charset, None).map_err(|error| {
+        SubtitleToolkitError::Ocr {
+            message: format!("failed to initialize PaddleOCR engine: {error}"),
         }
-
-        result
-    }
-
-    #[cfg(not(unix))]
-    {
-        OcrEngine::new(detection, recognition, charset, None).map_err(|error| {
-            SubtitleToolkitError::Ocr {
-                message: format!("failed to initialize PaddleOCR engine: {error}"),
-            }
-        })
-    }
+    })
 }
 
 fn ocr_pgs_to_srt_blocking(sup_path: &Path, model_paths: &ModelPaths) -> Result<String> {
+    let file_size = std::fs::metadata(sup_path)?.len();
+    if file_size > MAX_PGS_FILE_BYTES {
+        return Err(SubtitleToolkitError::Ocr {
+            message: format!(
+                "PGS stream is {file_size} bytes; maximum supported size is {MAX_PGS_FILE_BYTES}"
+            ),
+        });
+    }
     let mut data = std::fs::read(sup_path)?;
     let pgs = parse_pgs(data.as_mut_slice()).map_err(|error| SubtitleToolkitError::Ocr {
         message: format!("failed to parse PGS subtitle stream: {error}"),
@@ -290,11 +277,11 @@ fn recognize_display_set_text(
         .iter()
         .map(|(image, _)| image.clone())
         .collect::<Vec<_>>();
-    let recognition_results = ocr
-        .recognize_batch(&cropped_images)
-        .map_err(|error| SubtitleToolkitError::Ocr {
-            message: format!("PaddleOCR recognition failed on rendered PGS frame: {error}"),
-        })?;
+    let recognition_results =
+        ocr.recognize_batch(&cropped_images)
+            .map_err(|error| SubtitleToolkitError::Ocr {
+                message: format!("PaddleOCR recognition failed on rendered PGS frame: {error}"),
+            })?;
 
     let recognized_blocks = detections
         .into_iter()
@@ -404,41 +391,76 @@ fn collect_display_sets<'a>(pgs: &'a Pgs) -> Result<Vec<ResolvedDisplaySet<'a>>>
 fn render_display_set_for_ocr(display_set: &ResolvedDisplaySet<'_>) -> Result<RgbaImage> {
     let width = display_set.width as usize;
     let height = display_set.height as usize;
-    let mut rgba = vec![0u8; width * height * 4];
+    let pixels = width
+        .checked_mul(height)
+        .filter(|pixels| *pixels > 0 && *pixels <= MAX_PGS_PIXELS)
+        .ok_or_else(|| SubtitleToolkitError::Ocr {
+            message: format!(
+                "invalid or oversized PGS frame dimensions: {}x{}",
+                display_set.width, display_set.height
+            ),
+        })?;
+    let rgba_len = pixels
+        .checked_mul(4)
+        .ok_or_else(|| SubtitleToolkitError::Ocr {
+            message: "PGS RGBA frame size overflow".into(),
+        })?;
+    let mut rgba = vec![0u8; rgba_len];
 
     for composition_object in display_set.composition_objects {
-        let object = display_set.objects.get(&composition_object.id).ok_or_else(|| {
-            SubtitleToolkitError::Ocr {
+        let object = display_set
+            .objects
+            .get(&composition_object.id)
+            .ok_or_else(|| SubtitleToolkitError::Ocr {
                 message: format!(
                     "PGS object {} is missing from display set at {}",
                     composition_object.id, display_set.presentation_timestamp
                 ),
-            }
-        })?;
+            })?;
         let palette = display_set.palettes.get(&display_set.palette_id);
-        let mut pixel_offset = ((composition_object.vertical_position as usize * width)
-            + composition_object.horizontal_position as usize)
-            * 4;
+        let object_width = object.width as usize;
+        let object_height = object.height as usize;
+        let object_pixels = object_width
+            .checked_mul(object_height)
+            .filter(|pixels| *pixels > 0)
+            .ok_or_else(|| SubtitleToolkitError::Ocr {
+                message: format!(
+                    "PGS object {} has invalid dimensions",
+                    composition_object.id
+                ),
+            })?;
+        let mut object_pixel_index = 0usize;
 
         for pixel in &object.data.0 {
             let palette_entry = palette.and_then(|palette| palette.entries.get(&pixel.color));
+            let run_end = object_pixel_index
+                .checked_add(pixel.count as usize)
+                .filter(|end| *end <= object_pixels)
+                .ok_or_else(|| SubtitleToolkitError::Ocr {
+                    message: format!(
+                        "PGS object {} run-length data exceeds {}x{} dimensions",
+                        composition_object.id, object.width, object.height
+                    ),
+                })?;
 
-            for _ in 0..pixel.count {
-                if !is_cropped(pixel_offset / 4, width, composition_object)
-                    && let Some(entry) = palette_entry
-                {
-                    rgba[pixel_offset] = entry.luminance;
-                    rgba[pixel_offset + 1] = entry.luminance;
-                    rgba[pixel_offset + 2] = entry.luminance;
-                    rgba[pixel_offset + 3] = entry.alpha;
+            while object_pixel_index < run_end {
+                let local_x = object_pixel_index % object_width;
+                let local_y = object_pixel_index / object_width;
+                let frame_x = composition_object.horizontal_position as usize + local_x;
+                let frame_y = composition_object.vertical_position as usize + local_y;
+                if frame_x < width && frame_y < height {
+                    let frame_pixel = frame_y * width + frame_x;
+                    if !is_cropped(frame_pixel, width, composition_object)
+                        && let Some(entry) = palette_entry
+                    {
+                        let offset = frame_pixel * 4;
+                        rgba[offset] = entry.luminance;
+                        rgba[offset + 1] = entry.luminance;
+                        rgba[offset + 2] = entry.luminance;
+                        rgba[offset + 3] = entry.alpha;
+                    }
                 }
-
-                move_one_pixel_forward(
-                    &mut pixel_offset,
-                    width,
-                    composition_object.horizontal_position as usize,
-                    object.width as usize,
-                );
+                object_pixel_index += 1;
             }
         }
     }
@@ -463,19 +485,6 @@ fn is_cropped(pixel_index: usize, frame_width: usize, object: &CompositionObject
     let crop_bottom = crop_top + cropped.height as usize;
 
     x < crop_left || x >= crop_right || y < crop_top || y >= crop_bottom
-}
-
-fn move_one_pixel_forward(
-    pixel_offset: &mut usize,
-    frame_width: usize,
-    horizontal_position: usize,
-    object_width: usize,
-) {
-    *pixel_offset += 4;
-    let x = (*pixel_offset / 4) % frame_width;
-    if x == horizontal_position + object_width {
-        *pixel_offset += (frame_width - object_width) * 4;
-    }
 }
 
 fn alpha_bounds(image: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
@@ -504,8 +513,14 @@ fn alpha_bounds(image: &RgbaImage) -> Option<(u32, u32, u32, u32)> {
     let padding = 6u32;
     let x = min_x.saturating_sub(padding);
     let y = min_y.saturating_sub(padding);
-    let width = min(image.width(), max_x.saturating_add(padding).saturating_add(1)) - x;
-    let height = min(image.height(), max_y.saturating_add(padding).saturating_add(1)) - y;
+    let width = min(
+        image.width(),
+        max_x.saturating_add(padding).saturating_add(1),
+    ) - x;
+    let height = min(
+        image.height(),
+        max_y.saturating_add(padding).saturating_add(1),
+    ) - y;
 
     Some((x, y, width.max(1), height.max(1)))
 }
@@ -662,16 +677,12 @@ fn append_ocr_text_piece(rendered: &mut String, piece: &str) {
         return;
     }
 
-    if piece
-        .chars()
-        .next()
-        .is_some_and(|character| {
-            matches!(
-                character,
-                ',' | '.' | '!' | '?' | ':' | ';' | ')' | ']' | '}' | '\'' | '"'
-            )
-        })
-    {
+    if piece.chars().next().is_some_and(|character| {
+        matches!(
+            character,
+            ',' | '.' | '!' | '?' | ':' | ';' | ')' | ']' | '}' | '\'' | '"'
+        )
+    }) {
         rendered.push_str(piece);
         return;
     }
@@ -917,7 +928,9 @@ async fn ensure_models(config: &OcrConfig, profile: ResolvedOcrProfile) -> Resul
         .join(profile.cache_segment());
     tokio::fs::create_dir_all(&cache_dir).await?;
 
-    let client = reqwest::Client::builder().build()?;
+    let client = reqwest::Client::builder()
+        .timeout(OCR_DOWNLOAD_TIMEOUT)
+        .build()?;
     let detection = ensure_model_artifact(&client, &cache_dir, &bundle.detection).await?;
     let recognition = ensure_model_artifact(&client, &cache_dir, &bundle.recognition).await?;
     let charset = ensure_model_artifact(&client, &cache_dir, &bundle.charset).await?;
@@ -935,24 +948,113 @@ async fn ensure_model_artifact(
     artifact: &ModelArtifact,
 ) -> Result<PathBuf> {
     let path = cache_dir.join(artifact.file_name);
-    if tokio::fs::metadata(&path).await.is_ok() {
+    if validate_model_artifact(&path, artifact).await? {
         return Ok(path);
     }
+    if tokio::fs::metadata(&path).await.is_ok() {
+        tokio::fs::remove_file(&path).await?;
+    }
 
-    let response = client
+    let mut response = client
         .get(artifact.url)
         .send()
         .await?
         .error_for_status()
         .map_err(|error| SubtitleToolkitError::Ocr {
-            message: format!("failed to download OCR model {}: {error}", artifact.file_name),
+            message: format!(
+                "failed to download OCR model {}: {error}",
+                artifact.file_name
+            ),
         })?;
-    let bytes = response.bytes().await?;
+    if response
+        .content_length()
+        .is_some_and(|length| length != artifact.size)
+    {
+        return Err(SubtitleToolkitError::Ocr {
+            message: format!(
+                "OCR model {} has unexpected Content-Length",
+                artifact.file_name
+            ),
+        });
+    }
 
-    let temp_path = path.with_extension("download");
-    tokio::fs::write(&temp_path, &bytes).await?;
-    tokio::fs::rename(&temp_path, &path).await?;
-    Ok(path)
+    let counter = DOWNLOAD_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    let temp_path = cache_dir.join(format!(
+        ".{}.download-{}-{counter}",
+        artifact.file_name,
+        std::process::id()
+    ));
+    let mut file = tokio::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_path)
+        .await?;
+    let mut hasher = Sha256::new();
+    let mut downloaded = 0u64;
+    while let Some(chunk) = response.chunk().await? {
+        downloaded = downloaded
+            .checked_add(chunk.len() as u64)
+            .filter(|size| *size <= artifact.size)
+            .ok_or_else(|| SubtitleToolkitError::Ocr {
+                message: format!("OCR model {} exceeded expected size", artifact.file_name),
+            })?;
+        hasher.update(&chunk);
+        file.write_all(&chunk).await?;
+    }
+    file.flush().await?;
+    file.sync_all().await?;
+    drop(file);
+
+    let digest = format!("{:x}", hasher.finalize());
+    if downloaded != artifact.size || digest != artifact.sha256 {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(SubtitleToolkitError::Ocr {
+            message: format!(
+                "OCR model {} failed size or SHA-256 validation",
+                artifact.file_name
+            ),
+        });
+    }
+
+    match tokio::fs::rename(&temp_path, &path).await {
+        Ok(()) => Ok(path),
+        Err(_) if validate_model_artifact(&path, artifact).await? => {
+            tokio::fs::remove_file(&temp_path).await?;
+            Ok(path)
+        }
+        Err(publish_error) => {
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            Err(SubtitleToolkitError::Ocr {
+                message: format!(
+                    "failed to publish validated OCR model {}: {publish_error}",
+                    artifact.file_name
+                ),
+            })
+        }
+    }
+}
+
+async fn validate_model_artifact(path: &Path, artifact: &ModelArtifact) -> Result<bool> {
+    let metadata = match tokio::fs::metadata(path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.len() != artifact.size {
+        return Ok(false);
+    }
+
+    let mut file = tokio::fs::File::open(path).await?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()) == artifact.sha256)
 }
 
 fn default_model_cache_dir() -> PathBuf {
@@ -990,9 +1092,8 @@ fn resolve_profile(
         OcrLanguage::Auto => {
             if stream_language
                 .is_some_and(|language| matches_language(language, &["eng", "en"][..]))
-                || source_language_hint.is_some_and(|language| {
-                    normalize_language_name(language).contains("english")
-                })
+                || source_language_hint
+                    .is_some_and(|language| normalize_language_name(language).contains("english"))
             {
                 ResolvedOcrProfile::English
             } else {
@@ -1024,28 +1125,38 @@ fn normalize_language_name(value: &str) -> String {
 fn model_bundle(profile: ResolvedOcrProfile) -> ModelBundle {
     let detection = ModelArtifact {
         file_name: "PP-OCRv5_mobile_det.mnn",
-        url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/next/models/PP-OCRv5_mobile_det.mnn",
+        url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/PP-OCRv5_mobile_det.mnn",
+        size: 4_760_244,
+        sha256: "326f846bb5c903282e116ea089e8796b67921586726cca9457730436a79684c3",
     };
 
     let (recognition, charset) = match profile {
         ResolvedOcrProfile::English => (
             ModelArtifact {
                 file_name: "en_PP-OCRv5_mobile_rec_infer.mnn",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/next/models/en_PP-OCRv5_mobile_rec_infer.mnn",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/en_PP-OCRv5_mobile_rec_infer.mnn",
+                size: 3_967_840,
+                sha256: "c5e747fb69275e9d99fbe54f97642c65681c3e4244383f825d1d7668e9aece81",
             },
             ModelArtifact {
                 file_name: "ppocr_keys_en.txt",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/next/models/ppocr_keys_en.txt",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/ppocr_keys_en.txt",
+                size: 1_416,
+                sha256: "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6",
             },
         ),
         ResolvedOcrProfile::Latin => (
             ModelArtifact {
                 file_name: "latin_PP-OCRv5_mobile_rec_infer.mnn",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/next/models/latin_PP-OCRv5_mobile_rec_infer.mnn",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/latin_PP-OCRv5_mobile_rec_infer.mnn",
+                size: 4_065_440,
+                sha256: "f3da21186ade13e0d3553867205a8983d9fda46e10b6a15e5f6308325e6e7a55",
             },
             ModelArtifact {
                 file_name: "ppocr_keys_latin.txt",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/next/models/ppocr_keys_latin.txt",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/ppocr_keys_latin.txt",
+                size: 2_616,
+                sha256: "ccbcc45730b3fbbd9050c5bc74db6a99067141ef1035e3d14889a84a6b9b1aff",
             },
         ),
     };
@@ -1073,8 +1184,8 @@ mod tests {
     use imageproc::rect::Rect;
     use pgs_rs::parse::{
         CompositionObject, CompositionState, LastInSequence, ObjectDefinition, PaletteDefinition,
-        PaletteEntry, Pgs, PresentationComposition, RlEncodedPixels, RunLengthEncodedData,
-        Segment, SegmentContents,
+        PaletteEntry, Pgs, PresentationComposition, RlEncodedPixels, RunLengthEncodedData, Segment,
+        SegmentContents,
     };
 
     #[test]
@@ -1091,6 +1202,68 @@ mod tests {
             resolve_profile(OcrLanguage::Auto, Some("por"), Some("Portuguese")),
             ResolvedOcrProfile::Latin
         );
+    }
+
+    #[test]
+    fn render_rejects_invalid_frame_dimensions() {
+        let display_set = ResolvedDisplaySet {
+            presentation_timestamp: 0,
+            width: 0,
+            height: 1080,
+            palette_id: 0,
+            composition_objects: &[],
+            palettes: HashMap::new(),
+            objects: HashMap::new(),
+        };
+        let error = render_display_set_for_ocr(&display_set).unwrap_err();
+        assert!(error.to_string().contains("dimensions"));
+    }
+
+    #[test]
+    fn render_rejects_rle_data_beyond_object_bounds() {
+        let composition_objects = [CompositionObject {
+            id: 7,
+            window_id: 0,
+            horizontal_position: 0,
+            vertical_position: 0,
+            cropped: None,
+        }];
+        let object = ObjectDefinition {
+            id: 7,
+            version: 0,
+            last_in_sequence: LastInSequence::FirstAndLast,
+            width: 2,
+            height: 1,
+            data: RunLengthEncodedData(vec![RlEncodedPixels { count: 3, color: 1 }]),
+        };
+        let display_set = ResolvedDisplaySet {
+            presentation_timestamp: 0,
+            width: 2,
+            height: 1,
+            palette_id: 0,
+            composition_objects: &composition_objects,
+            palettes: HashMap::new(),
+            objects: HashMap::from([(7, &object)]),
+        };
+        let error = render_display_set_for_ocr(&display_set).unwrap_err();
+        assert!(error.to_string().contains("run-length data exceeds"));
+    }
+
+    #[tokio::test]
+    async fn cached_model_requires_expected_size_and_sha256() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("model.bin");
+        tokio::fs::write(&path, b"abc").await.unwrap();
+        let artifact = ModelArtifact {
+            file_name: "model.bin",
+            url: "https://example.invalid/model.bin",
+            size: 3,
+            sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        };
+        assert!(validate_model_artifact(&path, &artifact).await.unwrap());
+
+        tokio::fs::write(&path, b"abd").await.unwrap();
+        assert!(!validate_model_artifact(&path, &artifact).await.unwrap());
     }
 
     #[test]
@@ -1139,33 +1312,38 @@ mod tests {
             },
         ]);
 
-        assert_eq!(lines, vec!["Hello world".to_owned(), "Tudo bem?".to_owned()]);
+        assert_eq!(
+            lines,
+            vec!["Hello world".to_owned(), "Tudo bem?".to_owned()]
+        );
     }
 
     #[test]
     fn merge_display_texts_merges_duplicates_and_closes_on_empty() {
-        let cues = merge_display_texts(&[
-            DisplayTextEvent {
-                pts: 9_000,
-                is_empty: false,
-                text: Some("Hello".to_owned()),
-            },
-            DisplayTextEvent {
-                pts: 18_000,
-                is_empty: false,
-                text: Some("Hello".to_owned()),
-            },
-            DisplayTextEvent {
-                pts: 27_000,
-                is_empty: true,
-                text: None,
-            },
-            DisplayTextEvent {
-                pts: 36_000,
-                is_empty: false,
-                text: Some("World".to_owned()),
-            },
-        ][..]);
+        let cues = merge_display_texts(
+            &[
+                DisplayTextEvent {
+                    pts: 9_000,
+                    is_empty: false,
+                    text: Some("Hello".to_owned()),
+                },
+                DisplayTextEvent {
+                    pts: 18_000,
+                    is_empty: false,
+                    text: Some("Hello".to_owned()),
+                },
+                DisplayTextEvent {
+                    pts: 27_000,
+                    is_empty: true,
+                    text: None,
+                },
+                DisplayTextEvent {
+                    pts: 36_000,
+                    is_empty: false,
+                    text: Some("World".to_owned()),
+                },
+            ][..],
+        );
 
         assert_eq!(cues.len(), 2);
         assert_eq!(cues[0].start_pts, 9_000);
@@ -1177,25 +1355,25 @@ mod tests {
 
     #[test]
     fn merge_display_texts_promotes_short_fragment_into_following_full_text() {
-        let cues = merge_display_texts(&[
-            DisplayTextEvent {
-                pts: 9_000,
-                is_empty: false,
-                text: Some("?".to_owned()),
-            },
-            DisplayTextEvent {
-                pts: 18_000,
-                is_empty: false,
-                text: Some(
-                    "...e algo que voce deve descobrir por conta propria.".to_owned(),
-                ),
-            },
-            DisplayTextEvent {
-                pts: 27_000,
-                is_empty: true,
-                text: None,
-            },
-        ][..]);
+        let cues = merge_display_texts(
+            &[
+                DisplayTextEvent {
+                    pts: 9_000,
+                    is_empty: false,
+                    text: Some("?".to_owned()),
+                },
+                DisplayTextEvent {
+                    pts: 18_000,
+                    is_empty: false,
+                    text: Some("...e algo que voce deve descobrir por conta propria.".to_owned()),
+                },
+                DisplayTextEvent {
+                    pts: 27_000,
+                    is_empty: true,
+                    text: None,
+                },
+            ][..],
+        );
 
         assert_eq!(cues.len(), 1);
         assert_eq!(cues[0].start_pts, 9_000);
@@ -1208,23 +1386,25 @@ mod tests {
 
     #[test]
     fn merge_display_texts_promotes_progressive_text_expansion() {
-        let cues = merge_display_texts(&[
-            DisplayTextEvent {
-                pts: 9_000,
-                is_empty: false,
-                text: Some("hello".to_owned()),
-            },
-            DisplayTextEvent {
-                pts: 18_000,
-                is_empty: false,
-                text: Some("hello world".to_owned()),
-            },
-            DisplayTextEvent {
-                pts: 27_000,
-                is_empty: true,
-                text: None,
-            },
-        ][..]);
+        let cues = merge_display_texts(
+            &[
+                DisplayTextEvent {
+                    pts: 9_000,
+                    is_empty: false,
+                    text: Some("hello".to_owned()),
+                },
+                DisplayTextEvent {
+                    pts: 18_000,
+                    is_empty: false,
+                    text: Some("hello world".to_owned()),
+                },
+                DisplayTextEvent {
+                    pts: 27_000,
+                    is_empty: true,
+                    text: None,
+                },
+            ][..],
+        );
 
         assert_eq!(cues.len(), 1);
         assert_eq!(cues[0].start_pts, 9_000);
@@ -1244,15 +1424,10 @@ mod tests {
 
     #[test]
     fn repair_fragmentary_ocr_lines_attaches_trailing_punctuation_only_line() {
-        let repaired = repair_fragmentary_ocr_lines(vec![
-            "Por que voce morreu'".to_owned(),
-            "?".to_owned(),
-        ]);
+        let repaired =
+            repair_fragmentary_ocr_lines(vec!["Por que voce morreu'".to_owned(), "?".to_owned()]);
 
-        assert_eq!(
-            repaired,
-            vec!["Por que voce morreu'?".to_owned()]
-        );
+        assert_eq!(repaired, vec!["Por que voce morreu'?".to_owned()]);
     }
 
     #[test]
@@ -1275,16 +1450,12 @@ mod tests {
             "IS".to_owned(),
         ]);
 
-        assert_eq!(
-            repaired,
-            vec!["Por que ela esta chorando?".to_owned()]
-        );
+        assert_eq!(repaired, vec!["Por que ela esta chorando?".to_owned()]);
     }
 
     #[test]
     fn repair_fragmentary_ocr_lines_strips_single_leading_punctuation_noise() {
-        let repaired =
-            repair_fragmentary_ocr_lines(vec!["? tenho apenas dado".to_owned()]);
+        let repaired = repair_fragmentary_ocr_lines(vec!["? tenho apenas dado".to_owned()]);
 
         assert_eq!(repaired, vec!["tenho apenas dado".to_owned()]);
     }
@@ -1302,24 +1473,22 @@ mod tests {
                 Segment {
                     pts: 9_000,
                     dts: 9_000,
-                    contents: SegmentContents::PresentationComposition(
-                        PresentationComposition {
-                            width: 2,
-                            height: 1,
-                            frame_rate: 0,
-                            composition_number: 1,
-                            composition_state: CompositionState::EpochStart,
-                            palette_update: false,
-                            palette_id: 0,
-                            composition_objects: vec![CompositionObject {
-                                id: 0,
-                                window_id: 0,
-                                horizontal_position: 0,
-                                vertical_position: 0,
-                                cropped: None,
-                            }],
-                        },
-                    ),
+                    contents: SegmentContents::PresentationComposition(PresentationComposition {
+                        width: 2,
+                        height: 1,
+                        frame_rate: 0,
+                        composition_number: 1,
+                        composition_state: CompositionState::EpochStart,
+                        palette_update: false,
+                        palette_id: 0,
+                        composition_objects: vec![CompositionObject {
+                            id: 0,
+                            window_id: 0,
+                            horizontal_position: 0,
+                            vertical_position: 0,
+                            cropped: None,
+                        }],
+                    }),
                 },
                 Segment {
                     pts: 9_000,
@@ -1348,10 +1517,7 @@ mod tests {
                         last_in_sequence: LastInSequence::FirstAndLast,
                         width: 2,
                         height: 1,
-                        data: RunLengthEncodedData(vec![RlEncodedPixels {
-                            count: 2,
-                            color: 1,
-                        }]),
+                        data: RunLengthEncodedData(vec![RlEncodedPixels { count: 2, color: 1 }]),
                     }),
                 },
                 Segment {
@@ -1362,24 +1528,22 @@ mod tests {
                 Segment {
                     pts: 18_000,
                     dts: 18_000,
-                    contents: SegmentContents::PresentationComposition(
-                        PresentationComposition {
-                            width: 2,
-                            height: 1,
-                            frame_rate: 0,
-                            composition_number: 2,
-                            composition_state: CompositionState::Normal,
-                            palette_update: false,
-                            palette_id: 0,
-                            composition_objects: vec![CompositionObject {
-                                id: 0,
-                                window_id: 0,
-                                horizontal_position: 0,
-                                vertical_position: 0,
-                                cropped: None,
-                            }],
-                        },
-                    ),
+                    contents: SegmentContents::PresentationComposition(PresentationComposition {
+                        width: 2,
+                        height: 1,
+                        frame_rate: 0,
+                        composition_number: 2,
+                        composition_state: CompositionState::Normal,
+                        palette_update: false,
+                        palette_id: 0,
+                        composition_objects: vec![CompositionObject {
+                            id: 0,
+                            window_id: 0,
+                            horizontal_position: 0,
+                            vertical_position: 0,
+                            cropped: None,
+                        }],
+                    }),
                 },
                 Segment {
                     pts: 18_000,
@@ -1389,8 +1553,7 @@ mod tests {
             ],
         };
 
-        let display_sets =
-            collect_display_sets(&pgs).expect("display sets should resolve");
+        let display_sets = collect_display_sets(&pgs).expect("display sets should resolve");
         assert_eq!(display_sets.len(), 2);
         assert!(display_sets[1].objects.contains_key(&0));
         assert!(display_sets[1].palettes.contains_key(&0));

@@ -28,6 +28,15 @@ pub enum SubtitleToolkitError {
         stderr: String,
     },
 
+    /// External command exceeded the configured execution timeout.
+    #[error("command `{program}` timed out after {seconds}s")]
+    CommandTimedOut {
+        /// Program that timed out.
+        program: &'static str,
+        /// Timeout in seconds.
+        seconds: u64,
+    },
+
     /// No `.mkv` files found at the given path.
     #[error("no MKV files found at {path}")]
     NoMkvFiles { path: PathBuf },
@@ -36,7 +45,7 @@ pub enum SubtitleToolkitError {
     #[error("no ASS subtitle track found in {path}")]
     NoAssTrack { path: PathBuf },
 
-    /// No supported subtitle track (ASS or SRT) found in the MKV.
+    /// No supported subtitle track (ASS, SRT, WebVTT, or PGS) found in the MKV.
     #[error("no supported subtitle track found in {path}")]
     NoSubtitleTrack { path: PathBuf },
 
@@ -62,6 +71,28 @@ pub enum SubtitleToolkitError {
         provider: &'static str,
         message: String,
     },
+
+    /// Translation provider HTTP failure with retry metadata.
+    #[error(
+        "{provider} request failed{status_suffix}: {message}",
+        status_suffix = status.map(|value| format!(" with HTTP {value}")).unwrap_or_default()
+    )]
+    Provider {
+        /// Provider identifier.
+        provider: &'static str,
+        /// HTTP status, when the failure came from an HTTP response.
+        status: Option<u16>,
+        /// Sanitized provider response.
+        message: String,
+        /// Whether retrying the exact request can reasonably succeed.
+        retryable: bool,
+        /// Server-requested retry delay in seconds.
+        retry_after_seconds: Option<u64>,
+    },
+
+    /// Resume manifest is malformed or does not match the requested run.
+    #[error("resume progress error: {message}")]
+    Progress { message: String },
 
     /// OCR processing error.
     #[error("OCR error: {message}")]

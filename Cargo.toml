@@ -15,14 +15,15 @@ wiremock = "0.6"
 [dependencies]
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
+fs2 = "0.4"
 image = "0.25"
 imageproc = "0.25"
-libc = "0.2"
 ocr-rs = "2.2"
 pgs-rs = "0.1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 tempfile = "3.15"
 thiserror = "2.0"
-tokio = { version = "1.43", features = ["fs", "macros", "process", "rt-multi-thread"] }
+tokio = { version = "1.43", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }

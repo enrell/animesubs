@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, SubtitleToolkitError};
 
-use super::{TranslationRequest, Translator};
+use super::{
+    TranslationLimits, TranslationRequest, Translator, provider_http_error,
+    provider_transport_error,
+};
 
 /// Translator backend that calls the [Anthropic Messages API](https://docs.anthropic.com/en/api/messages).
 ///
@@ -59,6 +62,12 @@ impl AnthropicTranslator {
 #[async_trait::async_trait]
 impl Translator for AnthropicTranslator {
     async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
+        let max_tokens = request
+            .source_text
+            .chars()
+            .count()
+            .saturating_mul(2)
+            .clamp(1_024, 8_192) as u32;
         let response = self
             .client
             .post(format!("{}/v1/messages", self.base_url))
@@ -67,9 +76,10 @@ impl Translator for AnthropicTranslator {
             .header("Content-Type", "application/json")
             .json(&MessagesRequest {
                 model: &self.model,
-                max_tokens: 4096,
+                max_tokens,
                 system: "You are a subtitle translator. You translate subtitle dialogue while \
                      preserving numbered tags exactly. Return only the translated lines. \
+                     Preserve tokens such as [[PSY_TAG_0]] exactly and in order. \
                      Do not add explanations, markdown, notes, or code fences. \
                      Do not add curly-brace commands or backslash formatting."
                     .to_string(),
@@ -88,30 +98,53 @@ impl Translator for AnthropicTranslator {
                 temperature: 0.2,
             })
             .send()
-            .await?;
+            .await
+            .map_err(|error| provider_transport_error("anthropic", error))?;
 
         if !response.status().is_success() {
-            return Err(SubtitleToolkitError::Translation {
-                provider: "anthropic",
-                message: response
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "request failed".into()),
-            });
+            return Err(provider_http_error("anthropic", response).await);
         }
 
         let body = response.json::<MessagesResponse>().await?;
+        match body.stop_reason.as_deref() {
+            Some("end_turn" | "stop_sequence") => {}
+            Some(reason) => {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: format!("anthropic response was incomplete (stop_reason={reason})"),
+                });
+            }
+            None => {
+                return Err(SubtitleToolkitError::InvalidTranslation {
+                    message: "anthropic response omitted stop_reason".into(),
+                });
+            }
+        }
         let text = body
             .content
             .into_iter()
-            .find(|block| block.block_type == "text")
-            .ok_or_else(|| SubtitleToolkitError::Translation {
+            .filter(|block| block.block_type == "text")
+            .map(|block| block.text)
+            .collect::<String>();
+        if text.trim().is_empty() {
+            return Err(SubtitleToolkitError::Translation {
                 provider: "anthropic",
                 message: "response contained no text content blocks".into(),
-            })?
-            .text;
+            });
+        }
 
         Ok(text.trim().to_string())
+    }
+
+    fn identifier(&self) -> String {
+        format!("anthropic:{}:{}", self.base_url, self.model)
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        TranslationLimits {
+            max_request_bytes: 20 * 1024,
+            reject_unchanged_output: true,
+            ..TranslationLimits::default()
+        }
     }
 }
 
@@ -133,6 +166,8 @@ struct Message {
 #[derive(Debug, Deserialize)]
 struct MessagesResponse {
     content: Vec<ContentBlock>,
+    #[serde(default)]
+    stop_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,9 +201,9 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(anthropic_response(
-                "<1> Olá\n<2> mundo",
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(anthropic_response("<1> Olá\n<2> mundo")),
+            )
             .mount(&server)
             .await;
 
@@ -214,9 +249,9 @@ mod tests {
         let server = MockServer::start().await;
 
         Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(anthropic_response(
-                "  <1> Olá  \n",
-            )))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(anthropic_response("  <1> Olá  \n")),
+            )
             .mount(&server)
             .await;
 
@@ -240,7 +275,8 @@ mod tests {
 
         Mock::given(method("POST"))
             .respond_with(
-                ResponseTemplate::new(401).set_body_string(r#"{"error": {"message": "invalid api key"}}"#),
+                ResponseTemplate::new(401)
+                    .set_body_string(r#"{"error": {"message": "invalid api key"}}"#),
             )
             .mount(&server)
             .await;
@@ -288,5 +324,27 @@ mod tests {
             .unwrap_err();
 
         assert!(err.to_string().contains("no text content blocks"));
+    }
+
+    #[tokio::test]
+    async fn rejects_max_tokens_stop_reason() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "content": [{ "type": "text", "text": "<1> partial" }],
+                "stop_reason": "max_tokens"
+            })))
+            .mount(&server)
+            .await;
+        let translator =
+            AnthropicTranslator::with_base_url(server.uri(), "test-key", "claude-test").unwrap();
+        let error = translator
+            .translate(TranslationRequest {
+                source_text: "<1> hello",
+                target_language: "pt-BR",
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("stop_reason=max_tokens"));
     }
 }
