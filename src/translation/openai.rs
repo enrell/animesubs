@@ -25,10 +25,7 @@ use super::{
 /// ```
 #[derive(Debug, Clone)]
 pub struct OpenAiTranslator {
-    client: reqwest::Client,
-    base_url: String,
-    api_key: String,
-    model: String,
+    inner: OpenAiCompatibleTranslator,
 }
 
 impl OpenAiTranslator {
@@ -46,6 +43,48 @@ impl OpenAiTranslator {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self> {
+        Ok(Self {
+            inner: OpenAiCompatibleTranslator::with_base_url(base_url, api_key, model, "openai")?,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl Translator for OpenAiTranslator {
+    async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
+        self.inner.translate(request).await
+    }
+
+    fn identifier(&self) -> String {
+        self.inner.identifier()
+    }
+
+    fn limits(&self) -> TranslationLimits {
+        self.inner.limits()
+    }
+}
+
+/// Shared implementation for OpenAI Chat Completions-compatible gateways.
+///
+/// The provider label is kept separate so first-class integrations such as
+/// OpenCode Zen and OpenCode Go report useful identities and errors while
+/// reusing the wire protocol and validation rules.
+#[derive(Debug, Clone)]
+pub(crate) struct OpenAiCompatibleTranslator {
+    client: reqwest::Client,
+    base_url: String,
+    api_key: String,
+    model: String,
+    provider: &'static str,
+}
+
+impl OpenAiCompatibleTranslator {
+    pub(crate) fn with_base_url(
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        provider: &'static str,
+    ) -> Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
@@ -55,13 +94,11 @@ impl OpenAiTranslator {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             api_key: api_key.into(),
             model: model.into(),
+            provider,
         })
     }
-}
 
-#[async_trait::async_trait]
-impl Translator for OpenAiTranslator {
-    async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
+    pub(crate) async fn translate(&self, request: TranslationRequest<'_>) -> Result<String> {
         let messages = build_messages(&request);
 
         let response = self
@@ -75,10 +112,10 @@ impl Translator for OpenAiTranslator {
             })
             .send()
             .await
-            .map_err(|error| provider_transport_error("openai", error))?;
+            .map_err(|error| provider_transport_error(self.provider, error))?;
 
         if !response.status().is_success() {
-            return Err(provider_http_error("openai", response).await);
+            return Err(provider_http_error(self.provider, response).await);
         }
 
         let body = response.json::<ChatCompletionResponse>().await?;
@@ -86,32 +123,34 @@ impl Translator for OpenAiTranslator {
             .choices
             .first()
             .ok_or_else(|| SubtitleToolkitError::Translation {
-                provider: "openai",
+                provider: self.provider,
                 message: "response contained no choices".into(),
             })?;
         match choice.finish_reason.as_deref() {
             Some("stop") => {}
             Some(reason) => {
                 return Err(SubtitleToolkitError::InvalidTranslation {
-                    message: format!("openai response was incomplete (finish_reason={reason})"),
+                    message: format!(
+                        "{} response was incomplete (finish_reason={reason})",
+                        self.provider
+                    ),
                 });
             }
             None => {
                 return Err(SubtitleToolkitError::InvalidTranslation {
-                    message: "openai response omitted finish_reason".into(),
+                    message: format!("{} response omitted finish_reason", self.provider),
                 });
             }
         }
-        let content = choice.message.content.trim().to_string();
 
-        Ok(content)
+        Ok(choice.message.content.trim().to_string())
     }
 
-    fn identifier(&self) -> String {
-        format!("openai:{}:{}", self.base_url, self.model)
+    pub(crate) fn identifier(&self) -> String {
+        format!("{}:{}:{}", self.provider, self.base_url, self.model)
     }
 
-    fn limits(&self) -> TranslationLimits {
+    pub(crate) fn limits(&self) -> TranslationLimits {
         TranslationLimits {
             // Long numbered outputs are substantially more likely to be truncated or
             // malformed than similarly sized inputs, especially on compatible gateways.

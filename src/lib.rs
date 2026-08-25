@@ -11,6 +11,8 @@
 //! |----------|--------|----------|
 //! | [Ollama](https://ollama.com) | [`OllamaTranslator`] | `/api/generate` |
 //! | [OpenAI](https://platform.openai.com) | [`OpenAiTranslator`] | `/v1/chat/completions` |
+//! | [OpenCode Zen](https://opencode.ai/docs/zen/) | [`OpenCodeZenTranslator`] | `/v1/chat/completions` |
+//! | [OpenCode Go](https://opencode.ai/docs/go/) | [`OpenCodeGoTranslator`] | `/v1/chat/completions` |
 //! | [OpenRouter](https://openrouter.ai) | [`OpenRouterTranslator`] | `/api/v1/chat/completions` |
 //! | [Anthropic](https://docs.anthropic.com) | [`AnthropicTranslator`] | `/v1/messages` |
 //! | [DeepL](https://www.deepl.com) | [`DeepLTranslator`] | `/v2/translate` |
@@ -141,5 +143,6 @@ pub use translation::gemini::GeminiTranslator;
 pub use translation::google::GoogleTranslator;
 pub use translation::ollama::OllamaTranslator;
 pub use translation::openai::OpenAiTranslator;
+pub use translation::opencode::{OpenCodeGoTranslator, OpenCodeZenTranslator};
 pub use translation::openrouter::OpenRouterTranslator;
 pub use translation::{TranslationLimits, TranslationRequest, Translator};

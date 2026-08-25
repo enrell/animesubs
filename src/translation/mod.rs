@@ -10,6 +10,8 @@ pub mod google;
 pub mod ollama;
 /// OpenAI Chat Completions provider (`/v1/chat/completions`).
 pub mod openai;
+/// OpenCode Zen and OpenCode Go Chat Completions providers.
+pub mod opencode;
 /// OpenRouter unified LLM provider (`/api/v1/chat/completions`).
 pub mod openrouter;
 
@@ -49,6 +51,9 @@ impl Default for TranslationLimits {
 /// - [`google::GoogleTranslator`] — calls the Google Cloud Translation v2 endpoint
 /// - [`gemini::GeminiTranslator`] — calls the Google Gemini `generateContent` endpoint
 /// - [`openrouter::OpenRouterTranslator`] — calls the OpenRouter `/api/v1/chat/completions` endpoint
+///
+/// - [`opencode::OpenCodeZenTranslator`] calls OpenCode Zen's compatible endpoint
+/// - [`opencode::OpenCodeGoTranslator`] calls OpenCode Go's compatible endpoint
 ///
 /// Each provider owns its own prompt construction and HTTP client.
 /// The pipeline calls [`Translator::translate`] with numbered subtitle text

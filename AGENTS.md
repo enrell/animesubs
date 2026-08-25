@@ -44,10 +44,11 @@ src/
     structured.rs     # numbered text format, tag stripping, chunking
     vtt.rs            # WebVTT parser + renderer (VttSubtitle)
   ocr.rs            # PGS OCR pipeline via PaddleOCR PP-OCRv5
-  translation/
+    translation/
     mod.rs            # Translator trait + TranslationRequest struct
     ollama.rs         # Ollama /api/generate provider
     openai.rs         # OpenAI /v1/chat/completions provider
+    opencode.rs       # OpenCode Zen/Go /v1/chat/completions providers
     deepl.rs          # DeepL /v2/translate provider
     google.rs         # Google Translate v2 provider
     gemini.rs         # Gemini generateContent provider
@@ -153,19 +154,19 @@ mod tests {
 
 ## Testing
 
-### Test Categories (154 source tests plus doc-tests)
+### Test Categories (157 source tests plus doc-tests)
 
 | Category | Count | Location | What they test |
 |---|---|---|---|
 | Subtitle parsing | 21 | `subtitles/ass.rs` + `subtitles/srt.rs` + `subtitles/vtt.rs` | ASS + SRT + VTT parse, CRLF, metadata blocks, and render |
 | Structured text | 20 | `subtitles/structured.rs` | Numbered format, inline tag protection, byte/item chunking |
 | Pipeline and options | 39 | `pipeline.rs` | Processing, retry, resume manifests, crash-window safety, format regressions, concurrency, and limits |
-| Provider mocks | 44 | `translation/*.rs` | HTTP contracts, completion reasons, errors, and provider limits |
+| Provider mocks | 46 | `translation/*.rs` | HTTP contracts, completion reasons, errors, provider limits, and OpenCode adapters |
 | Doc-tests | 12 | `lib.rs` + provider files | Compile-check public examples |
 | OCR | 17 | `ocr.rs` | Bounded PGS rendering, cache hashes, text grouping, repair, and merging |
 | Retry | 10 | `retry.rs` | Transient/permanent classification, long-running HTTP 503 retry budget, `Retry-After`, capped backoff, invalid output, and attempts |
 | Real MKV mux | 1 | `media/mkv.rs` | Synthetic `mkvmerge` round-trip preserving track metadata/order |
-| CLI parsing | 2 | `main.rs` | Preferred command name and backwards-compatible alias |
+| CLI parsing and dispatch | 3 | `main.rs` | Preferred command name, backwards-compatible alias, and OpenCode providers |
 
 ### Writing Provider Tests
 

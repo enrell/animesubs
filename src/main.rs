@@ -11,6 +11,7 @@ use psyche_subtitle_toolkit::translation::gemini::GeminiTranslator;
 use psyche_subtitle_toolkit::translation::google::GoogleTranslator;
 use psyche_subtitle_toolkit::translation::ollama::OllamaTranslator;
 use psyche_subtitle_toolkit::translation::openai::OpenAiTranslator;
+use psyche_subtitle_toolkit::translation::opencode::{OpenCodeGoTranslator, OpenCodeZenTranslator};
 use psyche_subtitle_toolkit::translation::openrouter::OpenRouterTranslator;
 
 #[derive(Debug, Parser)]
@@ -36,7 +37,7 @@ enum Command {
         #[arg(
             long,
             default_value = "ollama",
-            help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini"
+            help = "Translation backend: ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
         )]
         provider: String,
 
@@ -71,6 +72,20 @@ enum Command {
 
         #[arg(
             long,
+            default_value = "https://opencode.ai/zen",
+            help = "OpenCode Zen base URL"
+        )]
+        opencode_zen_url: String,
+
+        #[arg(
+            long,
+            default_value = "https://opencode.ai/zen/go",
+            help = "OpenCode Go base URL"
+        )]
+        opencode_go_url: String,
+
+        #[arg(
+            long,
             default_value = "https://api.anthropic.com",
             help = "Anthropic API base URL"
         )]
@@ -91,7 +106,7 @@ enum Command {
         #[arg(
             long,
             default_value = "1",
-            help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, openai/openrouter/gemini: 2)"
+            help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, openai/opencode-zen/opencode-go/openrouter/gemini: 2)"
         )]
         parallel: usize,
     },
@@ -109,7 +124,7 @@ enum Command {
         #[arg(
             long,
             default_value = "ollama",
-            help = "Translation backend: ollama, openai, openrouter, anthropic, deepl, google, gemini"
+            help = "Translation backend: ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
         )]
         provider: String,
 
@@ -141,6 +156,20 @@ enum Command {
 
         #[arg(
             long,
+            default_value = "https://opencode.ai/zen",
+            help = "OpenCode Zen base URL"
+        )]
+        opencode_zen_url: String,
+
+        #[arg(
+            long,
+            default_value = "https://opencode.ai/zen/go",
+            help = "OpenCode Go base URL"
+        )]
+        opencode_go_url: String,
+
+        #[arg(
+            long,
             default_value = "https://api.anthropic.com",
             help = "Anthropic API base URL"
         )]
@@ -164,17 +193,19 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             api_key,
             deepl_url,
             openai_url,
+            opencode_zen_url,
+            opencode_go_url,
             anthropic_url,
         } => {
-            let translator = build_translator(
-                &provider,
-                &model,
-                &ollama_url,
-                &deepl_url,
-                &openai_url,
-                &anthropic_url,
-                api_key,
-            )?;
+            let urls = ProviderUrls {
+                ollama: &ollama_url,
+                deepl: &deepl_url,
+                openai: &openai_url,
+                opencode_zen: &opencode_zen_url,
+                opencode_go: &opencode_go_url,
+                anthropic: &anthropic_url,
+            };
+            let translator = build_translator(&provider, &model, &urls, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
@@ -215,21 +246,23 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
             api_key,
             deepl_url,
             openai_url,
+            opencode_zen_url,
+            opencode_go_url,
             anthropic_url,
             keep_temp,
             dry_run,
             resume,
             parallel,
         } => {
-            let translator = build_translator(
-                &provider,
-                &model,
-                &ollama_url,
-                &deepl_url,
-                &openai_url,
-                &anthropic_url,
-                api_key,
-            )?;
+            let urls = ProviderUrls {
+                ollama: &ollama_url,
+                deepl: &deepl_url,
+                openai: &openai_url,
+                opencode_zen: &opencode_zen_url,
+                opencode_go: &opencode_go_url,
+                anthropic: &anthropic_url,
+            };
+            let translator = build_translator(&provider, &model, &urls, api_key)?;
             let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
                 std::sync::Arc::from(translator);
             translate_mkv(
@@ -249,23 +282,48 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
     }
 }
 
+struct ProviderUrls<'a> {
+    ollama: &'a str,
+    deepl: &'a str,
+    openai: &'a str,
+    opencode_zen: &'a str,
+    opencode_go: &'a str,
+    anthropic: &'a str,
+}
+
 fn build_translator(
     provider: &str,
     model: &str,
-    ollama_url: &str,
-    deepl_url: &str,
-    openai_url: &str,
-    anthropic_url: &str,
+    urls: &ProviderUrls<'_>,
     api_key: Option<String>,
 ) -> psyche_subtitle_toolkit::Result<Box<dyn Translator>> {
     match provider {
         "ollama" => Ok(Box::new(OllamaTranslator::with_base_url(
-            ollama_url, model,
+            urls.ollama,
+            model,
         )?)),
         "openai" => {
             let key = require_api_key("openai", api_key)?;
             Ok(Box::new(OpenAiTranslator::with_base_url(
-                openai_url, key, model,
+                urls.openai,
+                key,
+                model,
+            )?))
+        }
+        "opencode-zen" => {
+            let key = require_api_key("opencode-zen", api_key)?;
+            Ok(Box::new(OpenCodeZenTranslator::with_base_url(
+                urls.opencode_zen,
+                key,
+                model,
+            )?))
+        }
+        "opencode-go" => {
+            let key = require_api_key("opencode-go", api_key)?;
+            Ok(Box::new(OpenCodeGoTranslator::with_base_url(
+                urls.opencode_go,
+                key,
+                model,
             )?))
         }
         "openrouter" => {
@@ -275,14 +333,14 @@ fn build_translator(
         "anthropic" => {
             let key = require_api_key("anthropic", api_key)?;
             Ok(Box::new(AnthropicTranslator::with_base_url(
-                anthropic_url,
+                urls.anthropic,
                 key,
                 model,
             )?))
         }
         "deepl" => {
             let key = require_api_key("deepl", api_key)?;
-            Ok(Box::new(DeepLTranslator::with_base_url(deepl_url, key)?))
+            Ok(Box::new(DeepLTranslator::with_base_url(urls.deepl, key)?))
         }
         "google" => {
             let key = require_api_key("google", api_key)?;
@@ -295,7 +353,7 @@ fn build_translator(
         unknown => Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
             provider: "cli",
             message: format!(
-                "unknown provider `{unknown}`, supported: ollama, openai, openrouter, anthropic, deepl, google, gemini"
+                "unknown provider `{unknown}`, supported: ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
             ),
         }),
     }
@@ -309,6 +367,8 @@ fn require_api_key(
 ) -> psyche_subtitle_toolkit::Result<String> {
     let provider_env = match provider {
         "openai" => "OPENAI_API_KEY",
+        "opencode-zen" => "OPENCODE_ZEN_API_KEY",
+        "opencode-go" => "OPENCODE_GO_API_KEY",
         "openrouter" => "OPENROUTER_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "deepl" => "DEEPL_API_KEY",
@@ -399,5 +459,34 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(cli.command, Command::TranslateAss { .. }));
+    }
+
+    #[test]
+    fn opencode_providers_use_first_class_dispatch() {
+        let urls = ProviderUrls {
+            ollama: "http://ollama",
+            deepl: "http://deepl",
+            openai: "http://openai",
+            opencode_zen: "http://zen",
+            opencode_go: "http://go",
+            anthropic: "http://anthropic",
+        };
+        let zen = build_translator(
+            "opencode-zen",
+            "x-preview-f-free",
+            &urls,
+            Some("test-key".into()),
+        )
+        .unwrap();
+        let go = build_translator(
+            "opencode-go",
+            "kimi-k2.7-code",
+            &urls,
+            Some("test-key".into()),
+        )
+        .unwrap();
+
+        assert!(zen.identifier().starts_with("opencode-zen:http://zen"));
+        assert!(go.identifier().starts_with("opencode-go:http://go"));
     }
 }

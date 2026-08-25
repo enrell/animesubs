@@ -7,7 +7,7 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 ## Features
 
 - Extract ASS, SRT, WebVTT, and PGS subtitle tracks from MKV files via mkvmerge/mkvextract
-- Translate subtitle dialogue through 7 pluggable providers
+- Translate subtitle dialogue through 9 pluggable providers
 - Protect inline ASS, SRT, and WebVTT formatting during translation
 - Automatic chunking by each provider's item and UTF-8 byte limits
 - Concurrent chunk translation with configurable parallelism
@@ -25,6 +25,8 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 | [Ollama](https://ollama.com) | `--provider ollama` | None | 3 | Default. Any Ollama model. |
 | [Anthropic](https://docs.anthropic.com) | `--provider anthropic` | environment or `--api-key` | 2 | Messages API. Custom endpoint via `--anthropic-url`. |
 | [OpenAI](https://platform.openai.com) | `--provider openai` | environment or `--api-key` | 2 | Compatible with OpenAI-style endpoints. |
+| [OpenCode Zen](https://opencode.ai/docs/zen/) | `--provider opencode-zen` | environment or `--api-key` | 2 | Native Chat Completions integration; default `https://opencode.ai/zen`. |
+| [OpenCode Go](https://opencode.ai/docs/go/) | `--provider opencode-go` | environment or `--api-key` | 2 | Native Chat Completions integration; default `https://opencode.ai/zen/go`. |
 | [OpenRouter](https://openrouter.ai) | `--provider openrouter` | environment or `--api-key` | 2 | Unified hosted-model API. |
 | [DeepL](https://www.deepl.com) | `--provider deepl` | environment or `--api-key` | 5 | Free or pro endpoint. |
 | [Google Translate](https://cloud.google.com/translate) | `--provider google` | environment or `--api-key` | 10 | Translation v2 API. |
@@ -32,7 +34,9 @@ No cloud required. No telemetry. Every translation provider is opt-in.
 
 The `--parallel` column shows recommended concurrency for each provider.
 
-For credentials, prefer `PSYCHE_SUBTITLE_API_KEY` or the provider-specific variable: `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPL_API_KEY`, `GOOGLE_API_KEY`, or `GEMINI_API_KEY`. `--api-key` remains available for compatibility but can be visible in shell history and process listings.
+For credentials, prefer `PSYCHE_SUBTITLE_API_KEY` or the provider-specific variable: `OPENAI_API_KEY`, `OPENCODE_ZEN_API_KEY`, `OPENCODE_GO_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPL_API_KEY`, `GOOGLE_API_KEY`, or `GEMINI_API_KEY`. `--api-key` remains available for compatibility but can be visible in shell history and process listings.
+
+OpenCode Zen and Go expose multiple wire protocols. These providers support the models advertised at `/v1/chat/completions`; models exposed only through `/responses` or `/messages` are not accepted by this adapter yet.
 
 ## Installation
 
@@ -73,6 +77,12 @@ psyche-subtitle-toolkit translate --input episode.mkv --to pt-BR --model gemma4:
 
 # OpenAI (set OPENAI_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
 psyche-subtitle-toolkit translate --provider openai --model gpt-4o-mini --input episode.mkv --to pt-BR
+
+# OpenCode Zen (set OPENCODE_ZEN_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
+psyche-subtitle-toolkit translate --provider opencode-zen --model x-preview-f-free --input episode.mkv --to pt-BR
+
+# OpenCode Go (set OPENCODE_GO_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
+psyche-subtitle-toolkit translate --provider opencode-go --model kimi-k2.7-code --input episode.mkv --to pt-BR
 
 # DeepL (free tier)
 psyche-subtitle-toolkit translate --provider deepl --input episode.mkv --to pt-BR
@@ -124,6 +134,8 @@ Progress is saved to a versioned JSON manifest and auto-deleted when all files c
     --model <MODEL>          Model name [default: llama3.1]
     --ollama-url <URL>       Ollama base URL [default: http://localhost:11434]
     --openai-url <URL>       OpenAI base URL [default: https://api.openai.com]
+    --opencode-zen-url <URL> OpenCode Zen base URL [default: https://opencode.ai/zen]
+    --opencode-go-url <URL>  OpenCode Go base URL [default: https://opencode.ai/zen/go]
     --anthropic-url <URL>    Anthropic base URL [default: https://api.anthropic.com]
     --api-key <KEY>          API key; environment variables are preferred
     --deepl-url <URL>        DeepL base URL [default: https://api-free.deepl.com]
