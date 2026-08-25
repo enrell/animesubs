@@ -236,6 +236,10 @@ Provider tests use `wiremock` to mock HTTP endpoints -- no real API calls.
 
 ## Release Notes
 
+### v0.4.1
+
+- Fixed repository metadata: the crate now points at `github.com/enrell/psyche-subtitle-toolkit` (also used as the OpenRouter `HTTP-Referer` attribution header)
+
 ### v0.4.0
 
 - **First-class OpenCode providers** — `--provider opencode-zen` and `--provider opencode-go` with dedicated endpoints (`--opencode-zen-url`, `--opencode-go-url`; defaults to `https://opencode.ai/zen` and `https://opencode.ai/zen/go`)
