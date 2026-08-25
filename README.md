@@ -236,6 +236,18 @@ Provider tests use `wiremock` to mock HTTP endpoints -- no real API calls.
 
 ## Release Notes
 
+### v0.4.0
+
+- **First-class OpenCode providers** — `--provider opencode-zen` and `--provider opencode-go` with dedicated endpoints (`--opencode-zen-url`, `--opencode-go-url`; defaults to `https://opencode.ai/zen` and `https://opencode.ai/zen/go`)
+- **Retry hardening** — transient/permanent error classification, `Retry-After` support, exponential backoff with jitter and a 60-second delay cap; HTTP 503 retries for up to a 2-hour budget
+- **Safer MKV muxing** — the candidate MKV is inspected before replacement, preserving track order, name, and flags; rollback-capable swap
+- **Versioned resume manifests** — record target language, provider/model identity, track choice, canonical path, size, and mtime; modified inputs stop resume instead of risking a second remux, and stale manifests are rejected
+- **Per-provider chunk limits** — chunks sized by each provider's item count and UTF-8 byte budget instead of a fixed 200 lines
+- **Environment-based API keys** — prefer `PSYCHE_SUBTITLE_API_KEY` or provider-specific variables (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPL_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_API_KEY`, `OPENCODE_ZEN_API_KEY`, `OPENCODE_GO_API_KEY`); `--api-key` remains available
+- **Richer provider errors** — errors retain HTTP status, retryability, and `Retry-After`; transport failures never expose credentials embedded in URLs
+- **PGS OCR hardening** — pinned, SHA-256-verified PaddleOCR PP-OCRv5 models with bounded rendering and cache hashing
+- **`translate-ass` renamed to `translate-subtitle`** (the old name still works as an alias)
+
 ### v0.3.0
 
 - **PGS OCR** — bitmap subtitle recognition via PaddleOCR PP-OCRv5 (auto-downloads models)
