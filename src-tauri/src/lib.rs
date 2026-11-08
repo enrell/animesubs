@@ -3,13 +3,17 @@ pub mod models;
 pub mod providers;
 pub mod utils;
 
-use commands::{backup, context, embedding, subtitle, translation, utils as utility_commands, video};
+use commands::{
+    backup, context, embedding, local_server, subtitle, translation, utils as utility_commands,
+    video,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(local_server::LocalServerState::default())
         .invoke_handler(tauri::generate_handler![
             utility_commands::greet,
             video::get_video_info,
@@ -33,7 +37,13 @@ pub fn run() {
             context::extract_context_profile,
             context::save_context_profile,
             context::load_context_profile,
+            local_server::local_server_status,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                local_server::stop_owned_server(app);
+            }
+        });
 }

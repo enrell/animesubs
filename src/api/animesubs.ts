@@ -6,6 +6,7 @@ import type {
   ContextProfile,
   ExtractResult,
   LlmConfig,
+  LocalServerStatus,
   OperationResult,
   SubtitleData,
   TranslationJobRequest,
@@ -105,3 +106,5 @@ export const saveContextProfile = (profile: ContextProfile, outputPath: string) 
 
 export const loadContextProfile = (filePath: string) =>
   invoke<ContextProfile>('load_context_profile', { filePath })
+
+export const localServerStatus = () => invoke<LocalServerStatus>('local_server_status')

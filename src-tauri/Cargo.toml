@@ -33,3 +33,6 @@ encoding_rs = "0.8"
 chardetng = "0.1"
 futures = "0.3"
 animedb = { version = "0.6", default-features = false, features = ["remote"] }
+# Client of the local server; does not pull in the engine.
+animesubs-api = { path = "../crates/api" }
+animesubs-client = { path = "../crates/client" }

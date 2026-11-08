@@ -93,6 +93,8 @@ name = "animesubs"
 version = "1.0.7"
 dependencies = [
  "animedb",
+ "animesubs-api",
+ "animesubs-client",
  "ass_parser",
  "chardetng",
  "chrono",
