@@ -1,0 +1,21 @@
+[package]
+name = "animesubs-client"
+version = "0.1.0"
+edition = "2024"
+description = "Client for the animesubs local server: find it, start it, call it, stop it"
+publish = false
+
+# Kept free of the engine so the desktop app can link it without the OCR stack.
+[dependencies]
+animesubs-api = { path = "../api" }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = "1"
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+animesubs-server = { path = "../server" }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"

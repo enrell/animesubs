@@ -120,6 +120,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "animesubs-cli"
+version = "0.1.0"
+dependencies = [
+ "animesubs-api",
+ "animesubs-client",
+ "animesubs-server",
+ "clap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
+name = "animesubs-client"
+version = "0.1.0"
+dependencies = [
+ "animesubs-api",
+ "animesubs-server",
+ "reqwest 0.12.24",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
 name = "animesubs-server"
 version = "0.1.0"
 dependencies = [
