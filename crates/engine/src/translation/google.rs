@@ -17,8 +17,8 @@ use super::{
 /// # Example
 ///
 /// ```no_run
-/// # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-/// use psyche_subtitle_toolkit::GoogleTranslator;
+/// # async fn example() -> animesubs_engine::Result<()> {
+/// use animesubs_engine::GoogleTranslator;
 ///
 /// let translator = GoogleTranslator::new("your-api-key")?;
 /// // let result = translator.translate(request).await?;

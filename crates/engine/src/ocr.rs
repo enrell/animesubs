@@ -64,7 +64,8 @@ impl OcrLanguage {
 pub struct OcrConfig {
     /// OCR language profile.
     pub language: OcrLanguage,
-    /// Custom model cache directory. If `None`, uses `~/.cache/psyche-subtitle-toolkit/`.
+    /// Custom model cache directory. If `None`, uses `~/.cache/psyche-subtitle-toolkit/`
+    /// (name kept from the toolkit so existing model caches are reused).
     pub model_cache_dir: Option<PathBuf>,
     /// Language metadata from the selected MKV stream (for example `eng`).
     pub stream_language: Option<String>,

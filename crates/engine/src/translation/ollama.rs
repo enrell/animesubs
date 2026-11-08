@@ -12,8 +12,8 @@ use super::{
 /// # Example
 ///
 /// ```no_run
-/// # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-/// use psyche_subtitle_toolkit::OllamaTranslator;
+/// # async fn example() -> animesubs_engine::Result<()> {
+/// use animesubs_engine::OllamaTranslator;
 ///
 /// let translator = OllamaTranslator::new("llama3.1")?;
 /// // let result = translator.translate(request).await?;

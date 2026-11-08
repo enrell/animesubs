@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use animesubs_api::{ProviderConfig, ProviderKind, error_codes};
-use psyche_subtitle_toolkit::{
+use animesubs_engine::{
     AnthropicTranslator, DeepLTranslator, GeminiTranslator, GoogleTranslator, OllamaTranslator,
     OpenAiTranslator, OpenCodeGoTranslator, OpenCodeZenTranslator, OpenRouterTranslator,
     Translator,
@@ -114,7 +114,7 @@ pub fn build_translator(config: &ProviderConfig) -> Result<Arc<dyn Translator>, 
     Ok(translator)
 }
 
-fn engine(error: psyche_subtitle_toolkit::SubtitleToolkitError) -> OpError {
+fn engine(error: animesubs_engine::SubtitleToolkitError) -> OpError {
     OpError::new(500, error_codes::INTERNAL, error.to_string())
 }
 

@@ -16,8 +16,8 @@ use super::{
 /// # Example
 ///
 /// ```no_run
-/// # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-/// use psyche_subtitle_toolkit::OpenRouterTranslator;
+/// # async fn example() -> animesubs_engine::Result<()> {
+/// use animesubs_engine::OpenRouterTranslator;
 ///
 /// let translator = OpenRouterTranslator::new("your-api-key", "meta-llama/llama-3.3-70b-instruct:free")?;
 /// // let result = translator.translate(request).await?;
@@ -68,9 +68,9 @@ impl Translator for OpenRouterTranslator {
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header(
                 "HTTP-Referer",
-                "https://github.com/enrell/psyche-subtitle-toolkit",
+                "https://github.com/enrell/animesubs",
             )
-            .header("X-Title", "psyche-subtitle-toolkit")
+            .header("X-Title", "animesubs")
             .json(&ChatCompletionRequest {
                 model: &self.model,
                 messages,
@@ -224,9 +224,9 @@ mod tests {
             .and(header("Authorization", "Bearer sk-my-key"))
             .and(header(
                 "HTTP-Referer",
-                "https://github.com/enrell/psyche-subtitle-toolkit",
+                "https://github.com/enrell/animesubs",
             ))
-            .and(header("X-Title", "psyche-subtitle-toolkit"))
+            .and(header("X-Title", "animesubs"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "choices": [{
                     "message": { "content": "<1> ok" },

@@ -15,8 +15,8 @@ use super::{
 /// # Example
 ///
 /// ```no_run
-/// # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-/// use psyche_subtitle_toolkit::OpenAiTranslator;
+/// # async fn example() -> animesubs_engine::Result<()> {
+/// use animesubs_engine::OpenAiTranslator;
 ///
 /// let translator = OpenAiTranslator::new("sk-...", "gpt-4o-mini")?;
 /// // let result = translator.translate(request).await?;

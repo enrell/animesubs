@@ -1,4 +1,9 @@
-# psyche-subtitle-toolkit
+# animesubs-engine
+
+The subtitle engine of [AnimeSubs](https://github.com/enrell/animesubs). Formerly
+`psyche-subtitle-toolkit`; that crate (last release 0.4.1 on crates.io) is superseded by
+this one.
+
 
 Extract, translate, and mux ASS, SRT, WebVTT, and PGS (bitmap) subtitles in MKV files. Usable as a standalone CLI or Rust library.
 
@@ -41,7 +46,7 @@ OpenCode Zen and Go expose multiple wire protocols. These providers support the 
 ## Installation
 
 ```sh
-cargo install --path .
+cargo install --path crates/engine
 ```
 
 Or build from source:
@@ -59,7 +64,7 @@ cargo build --release
 ### Inspect MKV tracks
 
 ```sh
-psyche-subtitle-toolkit inspect episode.mkv
+animesubs-engine inspect episode.mkv
 ```
 
 Output shows all tracks with a `*` marking the track that translation will auto-select:
@@ -73,41 +78,41 @@ Output shows all tracks with a `*` marking the track that translation will auto-
 
 ```sh
 # Ollama (default, local)
-psyche-subtitle-toolkit translate --input episode.mkv --to pt-BR --model gemma4:31b-cloud
+animesubs-engine translate --input episode.mkv --to pt-BR --model gemma4:31b-cloud
 
 # OpenAI (set OPENAI_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
-psyche-subtitle-toolkit translate --provider openai --model gpt-4o-mini --input episode.mkv --to pt-BR
+animesubs-engine translate --provider openai --model gpt-4o-mini --input episode.mkv --to pt-BR
 
 # OpenCode Zen (set OPENCODE_ZEN_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
-psyche-subtitle-toolkit translate --provider opencode-zen --model x-preview-f-free --input episode.mkv --to pt-BR
+animesubs-engine translate --provider opencode-zen --model x-preview-f-free --input episode.mkv --to pt-BR
 
 # OpenCode Go (set OPENCODE_GO_API_KEY or PSYCHE_SUBTITLE_API_KEY first)
-psyche-subtitle-toolkit translate --provider opencode-go --model kimi-k2.7-code --input episode.mkv --to pt-BR
+animesubs-engine translate --provider opencode-go --model kimi-k2.7-code --input episode.mkv --to pt-BR
 
 # DeepL (free tier)
-psyche-subtitle-toolkit translate --provider deepl --input episode.mkv --to pt-BR
+animesubs-engine translate --provider deepl --input episode.mkv --to pt-BR
 
 # Google Translate
-psyche-subtitle-toolkit translate --provider google --input episode.mkv --to pt
+animesubs-engine translate --provider google --input episode.mkv --to pt
 
 # Gemini
-psyche-subtitle-toolkit translate --provider gemini --model gemini-2.5-flash-lite --input episode.mkv --to pt-BR
+animesubs-engine translate --provider gemini --model gemini-2.5-flash-lite --input episode.mkv --to pt-BR
 
 # OpenRouter (free model)
-psyche-subtitle-toolkit translate --provider openrouter --model meta-llama/llama-3.3-70b-instruct:free --input episode.mkv --to pt-BR
+animesubs-engine translate --provider openrouter --model meta-llama/llama-3.3-70b-instruct:free --input episode.mkv --to pt-BR
 ```
 
 ### Translate standalone subtitle files
 
 ```sh
 # ASS file
-psyche-subtitle-toolkit translate-subtitle --input source.ass --output translated.ass --to pt-BR --provider deepl
+animesubs-engine translate-subtitle --input source.ass --output translated.ass --to pt-BR --provider deepl
 
 # SRT file (auto-detected by extension or content)
-psyche-subtitle-toolkit translate-subtitle --input source.srt --output translated.srt --to pt-BR --provider deepl
+animesubs-engine translate-subtitle --input source.srt --output translated.srt --to pt-BR --provider deepl
 
 # WebVTT file (auto-detected by extension or WEBVTT header)
-psyche-subtitle-toolkit translate-subtitle --input source.vtt --output translated.vtt --to pt-BR --provider deepl
+animesubs-engine translate-subtitle --input source.vtt --output translated.vtt --to pt-BR --provider deepl
 ```
 
 ### Resume interrupted translations
@@ -116,10 +121,10 @@ If a batch run is interrupted (crash, network failure), restart with `--resume` 
 
 ```sh
 # First run — interrupted at file 15/20
-psyche-subtitle-toolkit translate --resume --provider ollama --input /media/anime/ --to pt-BR
+animesubs-engine translate --resume --provider ollama --input /media/anime/ --to pt-BR
 
 # Restart — skips files 1-14, continues from 15
-psyche-subtitle-toolkit translate --resume --provider ollama --input /media/anime/ --to pt-BR
+animesubs-engine translate --resume --provider ollama --input /media/anime/ --to pt-BR
 ```
 
 Progress is saved to a versioned JSON manifest and auto-deleted when all files complete. It records the target, provider/model identity, track choice, canonical path, size, and modification time. Each file is marked pending before translation; if the MKV changes before the completion checkpoint is written, resume stops for manual inspection instead of risking a second remux. A stale manifest from a different run is rejected instead of silently mixing outputs.
@@ -151,16 +156,16 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-psyche-subtitle-toolkit = { path = "../psyche-subtitle-toolkit" }
+animesubs-engine = { git = "https://github.com/enrell/animesubs" }
 ```
 
 ### Translate an MKV file
 
 ```rust
 use std::sync::Arc;
-use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator, Translator};
+use animesubs_engine::{translate_mkv, TranslateMkvOptions, OllamaTranslator, Translator};
 
-# async fn example() -> psyche_subtitle_toolkit::Result<()> {
+# async fn example() -> animesubs_engine::Result<()> {
 let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("gemma4:31b-cloud")?);
 translate_mkv(
     TranslateMkvOptions {
@@ -182,9 +187,9 @@ translate_mkv(
 
 ```rust
 use std::sync::Arc;
-use psyche_subtitle_toolkit::{translate_ass, AssSubtitle, OllamaTranslator, Translator};
+use animesubs_engine::{translate_ass, AssSubtitle, OllamaTranslator, Translator};
 
-# async fn example() -> psyche_subtitle_toolkit::Result<()> {
+# async fn example() -> animesubs_engine::Result<()> {
 let ass = AssSubtitle::parse(&std::fs::read_to_string("source.ass")?)?;
 let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
 let translated = translate_ass(ass, "pt-BR", 1, translator).await?;
@@ -197,7 +202,7 @@ std::fs::write("translated.ass", translated.render())?;
 
 ```rust
 use async_trait::async_trait;
-use psyche_subtitle_toolkit::{Translator, TranslationRequest, Result};
+use animesubs_engine::{Translator, TranslationRequest, Result};
 
 struct MyTranslator { /* ... */ }
 
@@ -235,6 +240,14 @@ cargo clippy --all-targets --all-features -- -D warnings
 Provider tests use `wiremock` to mock HTTP endpoints -- no real API calls.
 
 ## Release Notes
+
+### v0.5.0
+
+- Renamed to `animesubs-engine` and moved into the AnimeSubs workspace (`crates/engine`);
+  library paths change from `psyche_subtitle_toolkit::` to `animesubs_engine::`, and the
+  CLI binary is now `animesubs-engine`
+- On-disk names (OCR model cache, resume manifests) and `PSYCHE_*` variables are unchanged
+- OpenRouter attribution headers now name AnimeSubs
 
 ### v0.4.1
 

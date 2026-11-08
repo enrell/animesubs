@@ -1,4 +1,9 @@
-//! # psyche-subtitle-toolkit
+//! # animesubs-engine
+//!
+//! The subtitle engine of [AnimeSubs](https://github.com/enrell/animesubs), formerly
+//! published as `psyche-subtitle-toolkit`. On-disk names (OCR model cache, resume
+//! manifests, lock directory) and the `PSYCHE_*` environment variables keep the
+//! old prefix so existing caches and interrupted runs keep working.
 //!
 //! Extract, translate, and mux ASS, SRT, WebVTT, and PGS subtitles in MKV files.
 //! Usable as a standalone CLI or library for media server integration.
@@ -25,9 +30,9 @@
 //!
 //! ```no_run
 //! use std::sync::Arc;
-//! use psyche_subtitle_toolkit::{translate_mkv, TranslateMkvOptions, OllamaTranslator, Translator};
+//! use animesubs_engine::{translate_mkv, TranslateMkvOptions, OllamaTranslator, Translator};
 //!
-//! # async fn example() -> psyche_subtitle_toolkit::Result<()> {
+//! # async fn example() -> animesubs_engine::Result<()> {
 //! let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
 //! translate_mkv(
 //!     TranslateMkvOptions {
@@ -49,9 +54,9 @@
 //!
 //! ```no_run
 //! use std::sync::Arc;
-//! use psyche_subtitle_toolkit::{translate_ass, AssSubtitle, OllamaTranslator, Translator};
+//! use animesubs_engine::{translate_ass, AssSubtitle, OllamaTranslator, Translator};
 //!
-//! # async fn example() -> psyche_subtitle_toolkit::Result<()> {
+//! # async fn example() -> animesubs_engine::Result<()> {
 //! let ass = AssSubtitle::parse(&std::fs::read_to_string("source.ass")?)?;
 //! let translator: Arc<dyn Translator> = Arc::new(OllamaTranslator::new("llama3.1")?);
 //! let translated = translate_ass(ass, "pt-BR", 1, translator).await?;
@@ -64,7 +69,7 @@
 //!
 //! ```
 //! use async_trait::async_trait;
-//! use psyche_subtitle_toolkit::{Translator, TranslationRequest, Result};
+//! use animesubs_engine::{Translator, TranslationRequest, Result};
 //!
 //! struct MyTranslator;
 //!

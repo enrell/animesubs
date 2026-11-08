@@ -11,7 +11,7 @@ use super::model::{SubtitleCue, SubtitleDocument};
 /// # Example
 ///
 /// ```
-/// use psyche_subtitle_toolkit::subtitles::srt::SrtSubtitle;
+/// use animesubs_engine::subtitles::srt::SrtSubtitle;
 ///
 /// let input = "1\n00:00:01,000 --> 00:00:02,000\nHello world\n\n2\n00:00:03,000 --> 00:00:04,000\nGoodbye world\n";
 /// let srt = SrtSubtitle::parse(input).unwrap();

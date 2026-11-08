@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 animesubs-api = { path = "../api" }
-psyche-subtitle-toolkit = { path = "../engine" } # the engine
+animesubs-engine = { path = "../engine" }
 async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 fs2 = "0.4"

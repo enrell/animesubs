@@ -12,7 +12,7 @@ use super::model::{SubtitleCue, SubtitleDocument};
 /// # Example
 ///
 /// ```
-/// use psyche_subtitle_toolkit::subtitles::vtt::VttSubtitle;
+/// use animesubs_engine::subtitles::vtt::VttSubtitle;
 ///
 /// let input = "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHello world\n\n\
 ///     2\n00:00:03.000 --> 00:00:04.000\nGoodbye\n";

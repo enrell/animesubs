@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use animesubs_api::Progress;
 use async_trait::async_trait;
-use psyche_subtitle_toolkit::{Result, TranslationLimits, TranslationRequest, Translator};
+use animesubs_engine::{Result, TranslationLimits, TranslationRequest, Translator};
 
 /// Live state of a running job, shared between the worker and status readers.
 #[derive(Debug)]

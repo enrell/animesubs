@@ -1,21 +1,21 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use psyche_subtitle_toolkit::AssSubtitle;
-use psyche_subtitle_toolkit::media::mkv::{inspect_mkv, select_subtitle_track};
-use psyche_subtitle_toolkit::pipeline::{TranslateMkvOptions, translate_ass, translate_mkv};
-use psyche_subtitle_toolkit::translation::Translator;
-use psyche_subtitle_toolkit::translation::anthropic::AnthropicTranslator;
-use psyche_subtitle_toolkit::translation::deepl::DeepLTranslator;
-use psyche_subtitle_toolkit::translation::gemini::GeminiTranslator;
-use psyche_subtitle_toolkit::translation::google::GoogleTranslator;
-use psyche_subtitle_toolkit::translation::ollama::OllamaTranslator;
-use psyche_subtitle_toolkit::translation::openai::OpenAiTranslator;
-use psyche_subtitle_toolkit::translation::opencode::{OpenCodeGoTranslator, OpenCodeZenTranslator};
-use psyche_subtitle_toolkit::translation::openrouter::OpenRouterTranslator;
+use animesubs_engine::AssSubtitle;
+use animesubs_engine::media::mkv::{inspect_mkv, select_subtitle_track};
+use animesubs_engine::pipeline::{TranslateMkvOptions, translate_ass, translate_mkv};
+use animesubs_engine::translation::Translator;
+use animesubs_engine::translation::anthropic::AnthropicTranslator;
+use animesubs_engine::translation::deepl::DeepLTranslator;
+use animesubs_engine::translation::gemini::GeminiTranslator;
+use animesubs_engine::translation::google::GoogleTranslator;
+use animesubs_engine::translation::ollama::OllamaTranslator;
+use animesubs_engine::translation::openai::OpenAiTranslator;
+use animesubs_engine::translation::opencode::{OpenCodeGoTranslator, OpenCodeZenTranslator};
+use animesubs_engine::translation::openrouter::OpenRouterTranslator;
 
 #[derive(Debug, Parser)]
-#[command(name = "psyche-subtitle-toolkit")]
+#[command(name = "animesubs-engine")]
 #[command(about = "Translate and mux local MKV subtitles")]
 struct Cli {
     #[command(subcommand)]
@@ -181,7 +181,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> psyche_subtitle_toolkit::Result<()> {
+async fn main() -> animesubs_engine::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -209,7 +209,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                 anthropic: &anthropic_url,
             };
             let translator = build_translator(&provider, &model, &urls, api_key)?;
-            let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
+            let translator: std::sync::Arc<dyn animesubs_engine::Translator> =
                 std::sync::Arc::from(translator);
             let source = tokio::fs::read_to_string(&input).await?;
 
@@ -222,14 +222,14 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                     || (!source.trim_start().starts_with('[') && source.contains("-->")));
 
             if is_vtt {
-                let vtt = psyche_subtitle_toolkit::VttSubtitle::parse(&source)?;
+                let vtt = animesubs_engine::VttSubtitle::parse(&source)?;
                 let translated =
-                    psyche_subtitle_toolkit::translate_vtt(vtt, &to, 1, translator).await?;
+                    animesubs_engine::translate_vtt(vtt, &to, 1, translator).await?;
                 tokio::fs::write(&output, translated.render()).await?;
             } else if is_srt {
-                let srt = psyche_subtitle_toolkit::SrtSubtitle::parse(&source)?;
+                let srt = animesubs_engine::SrtSubtitle::parse(&source)?;
                 let translated =
-                    psyche_subtitle_toolkit::translate_srt(srt, &to, 1, translator).await?;
+                    animesubs_engine::translate_srt(srt, &to, 1, translator).await?;
                 tokio::fs::write(&output, translated.render()).await?;
             } else {
                 let ass = AssSubtitle::parse(&source)?;
@@ -266,7 +266,7 @@ async fn main() -> psyche_subtitle_toolkit::Result<()> {
                 anthropic: &anthropic_url,
             };
             let translator = build_translator(&provider, &model, &urls, api_key)?;
-            let translator: std::sync::Arc<dyn psyche_subtitle_toolkit::Translator> =
+            let translator: std::sync::Arc<dyn animesubs_engine::Translator> =
                 std::sync::Arc::from(translator);
             translate_mkv(
                 TranslateMkvOptions {
@@ -299,7 +299,7 @@ fn build_translator(
     model: &str,
     urls: &ProviderUrls<'_>,
     api_key: Option<String>,
-) -> psyche_subtitle_toolkit::Result<Box<dyn Translator>> {
+) -> animesubs_engine::Result<Box<dyn Translator>> {
     match provider {
         "ollama" => Ok(Box::new(OllamaTranslator::with_base_url(
             urls.ollama,
@@ -353,7 +353,7 @@ fn build_translator(
             let key = require_api_key("gemini", api_key)?;
             Ok(Box::new(GeminiTranslator::new(key, model)?))
         }
-        unknown => Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+        unknown => Err(animesubs_engine::SubtitleToolkitError::Translation {
             provider: "cli",
             message: format!(
                 "unknown provider `{unknown}`, supported: \
@@ -368,7 +368,7 @@ fn build_translator(
 fn require_api_key(
     provider: &'static str,
     api_key: Option<String>,
-) -> psyche_subtitle_toolkit::Result<String> {
+) -> animesubs_engine::Result<String> {
     let provider_env = match provider {
         "openai" => "OPENAI_API_KEY",
         "opencode-zen" => "OPENCODE_ZEN_API_KEY",
@@ -383,7 +383,7 @@ fn require_api_key(
     api_key
         .or_else(|| nonempty_env("PSYCHE_SUBTITLE_API_KEY"))
         .or_else(|| nonempty_env(provider_env))
-        .ok_or_else(|| psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
+        .ok_or_else(|| animesubs_engine::SubtitleToolkitError::Translation {
         provider,
         message: format!(
             "an API key is required for {provider}; set PSYCHE_SUBTITLE_API_KEY or {provider_env}"
@@ -397,7 +397,7 @@ fn nonempty_env(name: &str) -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-async fn inspect(input: PathBuf) -> psyche_subtitle_toolkit::Result<()> {
+async fn inspect(input: PathBuf) -> animesubs_engine::Result<()> {
     let info = inspect_mkv(&input).await?;
     let selected_id = select_subtitle_track(&info, None).map(|(track, _)| track.id);
 
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn legacy_translate_ass_alias_still_parses() {
         let cli = Cli::try_parse_from([
-            "psyche-subtitle-toolkit",
+            "animesubs-engine",
             "translate-ass",
             "--input",
             "source.srt",
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn preferred_translate_subtitle_name_parses() {
         let cli = Cli::try_parse_from([
-            "psyche-subtitle-toolkit",
+            "animesubs-engine",
             "translate-subtitle",
             "--input",
             "source.vtt",

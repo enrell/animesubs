@@ -1,10 +1,11 @@
 [package]
-name = "psyche-subtitle-toolkit"
-version = "0.4.1"
+# Formerly published as `psyche-subtitle-toolkit` (last release 0.4.1).
+name = "animesubs-engine"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 description = "Extract, translate, and mux ASS/SRT/VTT/PGS subtitles in MKV files via pluggable translation providers"
-repository = "https://github.com/enrell/psyche-subtitle-toolkit"
+repository = "https://github.com/enrell/animesubs"
 readme = "README.md"
 keywords = ["subtitle", "mkv", "translation", "ass", "ocr"]
 categories = ["command-line-utilities", "multimedia::video"]

@@ -30,7 +30,7 @@ animesubs/
 │   │   └── utils.rs        # Utility functions
 │   └── Cargo.toml
 ├── crates/                 # Cargo workspace members (see docs/ARCHITECTURE.md)
-│   ├── engine/             # Subtitle engine (ex psyche-subtitle-toolkit, MIT)
+│   ├── engine/             # animesubs-engine (formerly psyche-subtitle-toolkit)
 │   ├── api/                # Local server wire types and home-dir files
 │   ├── server/             # Localhost HTTP/JSON server, job queue
 │   ├── client/             # Client used by the app and the CLI

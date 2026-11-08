@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Guide for AI coding agents working on psyche-subtitle-toolkit.
+Guide for AI coding agents working on animesubs-engine (`crates/engine` in the AnimeSubs
+workspace; formerly psyche-subtitle-toolkit).
 
 ## Quick Reference
 
@@ -13,11 +14,11 @@ cargo run -- inspect <mkv>                       # inspect MKV tracks
 cargo run -- translate --help                    # show all translate options
 ```
 
-All commands run from the project root.
+All commands run from `crates/engine` (or use `-p animesubs-engine` from the workspace root).
 
 ## Project Overview
 
-Rust crate + CLI that extracts ASS, SRT, WebVTT, and PGS subtitles from MKV files, translates them via pluggable providers, and muxes the translation back in-place. Designed for Psyche but usable standalone.
+Rust crate + CLI that extracts ASS, SRT, WebVTT, and PGS subtitles from MKV files, translates them via pluggable providers, and muxes the translation back in-place. Used by the AnimeSubs server and CLI; usable standalone.
 
 **Key constraints:**
 - ASS, SRT, WebVTT, and PGS (via OCR) subtitle formats

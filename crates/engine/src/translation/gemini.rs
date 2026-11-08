@@ -15,8 +15,8 @@ use super::{
 /// # Example
 ///
 /// ```no_run
-/// # async fn example() -> psyche_subtitle_toolkit::Result<()> {
-/// use psyche_subtitle_toolkit::GeminiTranslator;
+/// # async fn example() -> animesubs_engine::Result<()> {
+/// use animesubs_engine::GeminiTranslator;
 ///
 /// let translator = GeminiTranslator::new("your-api-key", "gemini-2.5-flash-lite")?;
 /// // let result = translator.translate(request).await?;
