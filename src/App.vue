@@ -500,7 +500,7 @@ const localServerLabel = computed(() => {
 })
 const refreshLocalServer = async () => {
   try {
-    localServer.value = await localServerStatus()
+    localServer.value = await localServerStatus(getSettings()?.interfaceLanguage)
   } catch (error) {
     localServer.value = {
       available: false,

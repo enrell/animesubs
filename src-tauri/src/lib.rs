@@ -1,3 +1,4 @@
+pub mod background;
 pub mod commands;
 pub mod models;
 pub mod providers;
@@ -14,6 +15,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(local_server::LocalServerState::default())
+        .manage(background::BackgroundState::default())
+        .on_window_event(background::on_window_event)
         .invoke_handler(tauri::generate_handler![
             utility_commands::greet,
             video::get_video_info,
