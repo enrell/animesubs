@@ -2,6 +2,7 @@
 name = "animesubs-client"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 description = "Client for the animesubs local server: find it, start it, call it, stop it"
 publish = false
 

@@ -5,7 +5,7 @@ Desktop app to extract, translate and embed subtitles into videos.
 <img width="1313" height="864" alt="image" src="https://github.com/user-attachments/assets/908574b4-a897-4921-a2d9-de9297d509d5" />
 
 
-![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
 ## Features
 
@@ -207,4 +207,4 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 ```
 
 ## License
-[GPL-3.0](LICENSE)
+[MIT](LICENSE). Releases up to v1.0.7 were published under AGPL-3.0; later versions are MIT.
