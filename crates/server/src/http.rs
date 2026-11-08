@@ -1,6 +1,7 @@
 //! HTTP routes (API v1).
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use animesubs_api::{
     API_VERSION, ApiError, ErrorBody, Health, JobList, JobSpec, JobStatus, SERVICE_NAME,
@@ -16,7 +17,7 @@ use tokio::sync::Notify;
 
 use crate::jobs::JobQueue;
 use crate::ops::{self, OpError};
-use crate::{VERSION, auth};
+use crate::{VERSION, auth, now_ms};
 
 /// Shared server state.
 #[derive(Clone)]
@@ -29,6 +30,8 @@ struct Inner {
     port: u16,
     jobs: JobQueue,
     shutdown: Arc<Notify>,
+    /// Unix ms of the last authenticated request: how long ago a client was attached.
+    last_client_ms: AtomicU64,
 }
 
 impl AppState {
@@ -40,8 +43,19 @@ impl AppState {
                 port,
                 jobs: JobQueue::start(),
                 shutdown,
+                last_client_ms: AtomicU64::new(now_ms()),
             }),
         }
+    }
+
+    /// Jobs queued or running.
+    pub fn active_jobs(&self) -> usize {
+        self.inner.jobs.active()
+    }
+
+    /// Milliseconds since the last authenticated request.
+    pub fn client_idle_ms(&self) -> u64 {
+        now_ms().saturating_sub(self.inner.last_client_ms.load(Ordering::Relaxed))
     }
 }
 
@@ -117,6 +131,10 @@ async fn guard(State(state): State<AppState>, request: Request, next: Next) -> R
             )
             .into_response();
         }
+        state
+            .inner
+            .last_client_ms
+            .store(now_ms(), Ordering::Relaxed);
     }
     next.run(request).await
 }

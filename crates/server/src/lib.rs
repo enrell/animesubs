@@ -22,7 +22,7 @@ use std::fs::File;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use animesubs_api::{API_VERSION, SERVICE_NAME, ServerInfo, paths};
 use fs2::FileExt;
@@ -30,6 +30,9 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 pub use http::{AppState, router};
+
+/// How long an orphaned server waits for clients after its last job.
+pub const DEFAULT_ORPHAN_GRACE: Duration = Duration::from_secs(30);
 
 /// Version reported by `GET /v1/health` and `server.json`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -43,10 +46,14 @@ pub struct ServerConfig {
     pub addr: SocketAddr,
     /// Use this token instead of the one stored in the home directory.
     pub token: Option<String>,
-    /// [`run`] also stops when stdin reaches end-of-file. A parent that spawns
-    /// the server with a piped stdin gets it stopped when the parent dies,
-    /// even if it is killed before it can call `POST /v1/shutdown`.
+    /// [`run`] also reacts to stdin reaching end-of-file, which is how a
+    /// parent that spawned the server with a piped stdin signals it died
+    /// (even when killed before it could call `POST /v1/shutdown`): an idle
+    /// server stops at once; one with queued or running jobs finishes them,
+    /// then stops once no client has called it for [`Self::orphan_grace`].
     pub stop_on_stdin_eof: bool,
+    /// See [`Self::stop_on_stdin_eof`].
+    pub orphan_grace: Duration,
 }
 
 impl ServerConfig {
@@ -57,6 +64,7 @@ impl ServerConfig {
             addr: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
             token: None,
             stop_on_stdin_eof: false,
+            orphan_grace: DEFAULT_ORPHAN_GRACE,
         }
     }
 }
@@ -82,6 +90,7 @@ pub struct RunningServer {
     url: String,
     token: String,
     home: PathBuf,
+    state: AppState,
     shutdown: Arc<Notify>,
     task: JoinHandle<std::io::Result<()>>,
     _lock: File,
@@ -99,6 +108,11 @@ impl RunningServer {
 
     pub fn home(&self) -> &Path {
         &self.home
+    }
+
+    /// Live server state (active jobs, client activity).
+    pub fn state(&self) -> &AppState {
+        &self.state
     }
 
     /// Ask the server to stop accepting requests and exit.
@@ -151,6 +165,7 @@ pub async fn start(config: ServerConfig) -> Result<RunningServer, ServerError> {
 
     let shutdown = Arc::new(Notify::new());
     let state = AppState::new(token.clone(), local.port(), shutdown.clone());
+    let state_handle = state.clone();
     write_discovery_file(
         &config.home,
         &ServerInfo {
@@ -174,6 +189,7 @@ pub async fn start(config: ServerConfig) -> Result<RunningServer, ServerError> {
         url,
         token,
         home: config.home,
+        state: state_handle,
         shutdown,
         task,
         _lock: lock,
@@ -183,6 +199,7 @@ pub async fn start(config: ServerConfig) -> Result<RunningServer, ServerError> {
 /// Run a server until `POST /v1/shutdown`, Ctrl-C or SIGTERM.
 pub async fn run(config: ServerConfig) -> Result<(), ServerError> {
     let stop_on_stdin_eof = config.stop_on_stdin_eof;
+    let orphan_grace = config.orphan_grace;
     let server = start(config).await?;
     eprintln!(
         "[serve] listening on {} (home {})",
@@ -196,12 +213,20 @@ pub async fn run(config: ServerConfig) -> Result<(), ServerError> {
         signal.notify_one();
     });
     if stop_on_stdin_eof {
-        let signal = server.shutdown_signal();
+        let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<()>();
         // Blocking read on a plain thread: Tokio's stdin would keep a runtime
         // worker busy and is not cancellable either.
         std::thread::spawn(move || {
             let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
-            eprintln!("[serve] stdin closed, stopping");
+            let _ = closed_tx.send(());
+        });
+        let signal = server.shutdown_signal();
+        let state = server.state().clone();
+        tokio::spawn(async move {
+            if closed_rx.await.is_err() {
+                return;
+            }
+            stop_when_orphaned(&state, orphan_grace).await;
             signal.notify_one();
         });
     }
@@ -209,6 +234,25 @@ pub async fn run(config: ServerConfig) -> Result<(), ServerError> {
     server.wait().await?;
     eprintln!("[serve] stopped");
     Ok(())
+}
+
+/// The parent is gone: return at once if idle, else after the queue drains
+/// and no client has called for `grace`.
+async fn stop_when_orphaned(state: &AppState, grace: Duration) {
+    let active = state.active_jobs();
+    if active == 0 {
+        eprintln!("[serve] stdin closed, stopping");
+        return;
+    }
+    eprintln!("[serve] stdin closed with {active} job(s) active; stopping once they finish");
+    let grace_ms = grace.as_millis() as u64;
+    loop {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        if state.active_jobs() == 0 && state.client_idle_ms() >= grace_ms {
+            eprintln!("[serve] jobs finished and no client attached, stopping");
+            return;
+        }
+    }
 }
 
 async fn wait_for_termination() {

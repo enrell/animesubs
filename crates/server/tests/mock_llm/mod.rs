@@ -7,7 +7,9 @@
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
-struct PrefixTranslation;
+struct PrefixTranslation {
+    delay: std::time::Duration,
+}
 
 impl Respond for PrefixTranslation {
     fn respond(&self, request: &Request) -> ResponseTemplate {
@@ -28,21 +30,28 @@ impl Respond for PrefixTranslation {
                 Some(format!("<{id}> PT: {text}"))
             })
             .collect();
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "choices": [{
-                "message": { "content": lines.join("\n") },
-                "finish_reason": "stop"
-            }]
-        }))
+        ResponseTemplate::new(200)
+            .set_delay(self.delay)
+            .set_body_json(serde_json::json!({
+                "choices": [{
+                    "message": { "content": lines.join("\n") },
+                    "finish_reason": "stop"
+                }]
+            }))
     }
 }
 
 /// Start the mock; use `server.uri()` as the provider `base_url`.
 pub async fn start() -> MockServer {
+    start_slow(std::time::Duration::ZERO).await
+}
+
+/// Like [`start`], but every response takes `delay`.
+pub async fn start_slow(delay: std::time::Duration) -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(PrefixTranslation)
+        .respond_with(PrefixTranslation { delay })
         .mount(&server)
         .await;
     server

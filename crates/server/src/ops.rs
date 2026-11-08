@@ -74,9 +74,7 @@ impl From<SubtitleToolkitError> for OpError {
             E::CommandFailed { .. }
             | E::NoSubtitleTrack { .. }
             | E::NoAssTrack { .. }
-            | E::SubtitleSelection { .. } => {
-                Self::new(422, error_codes::ENGINE, message)
-            }
+            | E::SubtitleSelection { .. } => Self::new(422, error_codes::ENGINE, message),
             _ => Self::new(500, error_codes::ENGINE, message),
         }
     }

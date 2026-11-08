@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use animesubs_api::Progress;
-use async_trait::async_trait;
 use animesubs_engine::{Result, TranslationLimits, TranslationRequest, Translator};
+use async_trait::async_trait;
 
 /// Live state of a running job, shared between the worker and status readers.
 #[derive(Debug)]

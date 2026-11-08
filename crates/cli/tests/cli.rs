@@ -299,3 +299,78 @@ fn server_stops_when_its_parent_goes_away() {
     assert!(server.0.wait().unwrap().success());
     assert!(!paths::server_info_file(&home).exists());
 }
+
+/// The app was killed while a job ran: the server finishes the job, stays up
+/// while a client keeps calling, then stops by itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn orphaned_server_finishes_its_jobs_then_stops() {
+    let llm = mock_llm::start_slow(Duration::from_millis(1500)).await;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let input = write_srt(dir.path());
+    let mut server = ServeProcess(
+        cli(&home)
+            .args([
+                "serve",
+                "--port",
+                "0",
+                "--exit-on-stdin-eof",
+                "--orphan-grace",
+                "1",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    wait_until("server health", || {
+        cli(&home)
+            .arg("health")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    });
+
+    let queued: serde_json::Value = serde_json::from_slice(
+        &run(cli(&home)
+            .arg("translate")
+            .arg(&input)
+            .args(["--to", "pt-BR", "--provider", "openai", "--model", "m"])
+            .args(["--base-url", &llm.uri(), "--server", "--no-wait"]))
+        .stdout,
+    )
+    .unwrap();
+    let id = queued["id"].as_str().unwrap().to_string();
+
+    // Parent dies mid-job.
+    drop(server.0.stdin.take());
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        server.0.try_wait().unwrap().is_none(),
+        "stopped with a job running"
+    );
+
+    // A client polling the job keeps the server attached past the grace period.
+    let job_state = || -> String {
+        let job: serde_json::Value =
+            serde_json::from_slice(&run(cli(&home).args(["job", &id])).stdout).unwrap();
+        job["state"].as_str().unwrap().to_string()
+    };
+    wait_until("job success", || job_state() == "succeeded");
+    let keep_attached_until = Instant::now() + Duration::from_millis(2500);
+    while Instant::now() < keep_attached_until {
+        assert_eq!(job_state(), "succeeded");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        server.0.try_wait().unwrap().is_none(),
+        "stopped while a client was attached"
+    );
+
+    // Nobody calls any more: it stops on its own.
+    wait_until("server exit", || server.0.try_wait().unwrap().is_some());
+    assert!(server.0.wait().unwrap().success());
+    assert!(!paths::server_info_file(&home).exists());
+    let translated = std::fs::read_to_string(dir.path().join("ep01.pt-BR.srt")).unwrap();
+    assert!(translated.contains("PT: Hello there"));
+}

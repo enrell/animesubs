@@ -46,10 +46,14 @@ enum Command {
         /// Port to listen on; 0 picks a free one.
         #[arg(long, default_value_t = DEFAULT_PORT)]
         port: u16,
-        /// Stop when stdin closes (used by the desktop app, so the server
-        /// does not outlive it).
+        /// Treat stdin closing as the parent going away (used by the desktop
+        /// app): stop at once if idle, else finish the queued jobs first.
         #[arg(long)]
         exit_on_stdin_eof: bool,
+        /// With --exit-on-stdin-eof: seconds to wait for clients after the
+        /// last job before stopping.
+        #[arg(long, value_name = "SECS", default_value_t = 30)]
+        orphan_grace: u64,
     },
     /// Print the running server's health as JSON.
     Health,
@@ -133,12 +137,14 @@ async fn run(cli: Cli) -> CliResult {
         Command::Serve {
             port,
             exit_on_stdin_eof,
+            orphan_grace,
         } => {
             let mut config = ServerConfig::local(home, port);
             config.token = std::env::var(TOKEN_ENV)
                 .ok()
                 .filter(|t| !t.trim().is_empty());
             config.stop_on_stdin_eof = exit_on_stdin_eof;
+            config.orphan_grace = Duration::from_secs(orphan_grace);
             animesubs_server::run(config).await?;
         }
         Command::Health => {

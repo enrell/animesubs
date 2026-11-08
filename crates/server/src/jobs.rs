@@ -96,6 +96,15 @@ impl JobQueue {
             .collect()
     }
 
+    /// Jobs queued or running.
+    pub fn active(&self) -> usize {
+        self.lock()
+            .records
+            .values()
+            .filter(|record| !record.status.state.is_terminal())
+            .count()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Table> {
         // A panic while holding the lock leaves plain data behind; keep serving it.
         self.table
