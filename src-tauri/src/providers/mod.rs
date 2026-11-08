@@ -217,7 +217,8 @@ pub(crate) fn parse_translation_response_content(
     match serde_json::from_str::<TranslationResponse>(&cleaned_content) {
         Ok(translation_response) => Ok(translation_response.translations),
         Err(err) => {
-            // Fallback: extract valid {"id": ..., "text": "..."} objects via regex in case JSON was truncated or malformed
+            // Fallback: extract valid {"id": ..., "text": "..."} objects
+            // via regex in case JSON was truncated or malformed
             let line_regex =
                 Regex::new(r#"(?s)\{\s*"id"\s*:\s*(\d+)\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}"#)
                     .unwrap();

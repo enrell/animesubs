@@ -97,7 +97,8 @@ async fn classify_anime_title(
             serde_json::json!({
                 "model": config.model,
                 "messages": [
-                    {"role": "system", "content": "You are a title classifier. Respond with ONLY the title, no extra text."},
+                    {"role": "system", "content": "You are a title classifier. \
+                        Respond with ONLY the title, no extra text."},
                     {"role": "user", "content": prompt}
                 ],
                 "temperature": 0.1,
@@ -140,7 +141,8 @@ async fn classify_anime_title(
             serde_json::json!({
                 "model": config.model,
                 "messages": [
-                    {"role": "system", "content": "You are a title classifier. Respond with ONLY the title, no extra text."},
+                    {"role": "system", "content": "You are a title classifier. \
+                        Respond with ONLY the title, no extra text."},
                     {"role": "user", "content": prompt}
                 ],
                 "stream": false,
@@ -331,7 +333,8 @@ async fn perform_llm_extraction(
 
     let prompt = format!(
         "You are an anime story and subtitle analyst.\n\
-         Analyze the provided anime info and subtitle dialogue to extract a structured context profile for translation from {} to {}.\n\n\
+         Analyze the provided anime info and subtitle dialogue to extract a structured \
+             context profile for translation from {} to {}.\n\n\
          Anime Title: {}\n\
          Synopsis: {}\n\
          Verified Characters from Database:\n{}\n\n\
@@ -340,7 +343,8 @@ async fn perform_llm_extraction(
          Return ONLY a valid JSON object matching this schema (no markdown formatting, no code block backticks):\n\
          {{\n\
            \"characters\": [\n\
-             {{\"name\": \"Character Name\", \"role\": \"Role/Archetype\", \"description\": \"Brief description\", \"relationships\": [\"Relationship\"]}}\n\
+             {{\"name\": \"Character Name\", \"role\": \"Role/Archetype\", \
+                 \"description\": \"Brief description\", \"relationships\": [\"Relationship\"]}}\n\
            ],\n\
            \"locations\": [\"Location 1\"],\n\
            \"terminology\": [\n\
