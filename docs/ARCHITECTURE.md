@@ -1,10 +1,10 @@
 # AnimeSubs — Architecture: one product, a local server underneath
 
-Status: proposal + first slice (branch `fusao/subtitle-toolkit`) · 2026-11-08
+Status: first slice + owner decisions (branch `fusao/subtitle-toolkit`) · 2026-11-08
 
 This note describes how AnimeSubs absorbs the engine of
-`psyche-subtitle-toolkit` (and what is worth keeping from
-`shinkai-translator`) and becomes a desktop app on top of a local server that
+`psyche-subtitle-toolkit` (now the `animesubs-engine` crate) and what was worth
+keeping from `shinkai-translator`, and becomes a desktop app on top of a local server that
 also works on its own, for scripts, agents and media servers. `docs/DESIGN.md`
 remains the source of truth for the interface; this document covers what runs
 underneath it.
@@ -34,7 +34,7 @@ daemon on localhost + standalone CLI):
   media server  └──────────┬───────────┘
         │                  │ in-process
         │       ┌──────────▼───────────┐
-        └─────▶ │  engine              │  crates/engine  (ex psyche-subtitle-toolkit)
+        └─────▶ │  engine              │  crates/engine  (animesubs-engine)
   animesubs-cli └──────────────────────┘
   (standalone or --server)
 ```
@@ -49,7 +49,7 @@ animesubs/
 ├── Cargo.toml          workspace root (profiles live here now)
 ├── Cargo.lock          single lockfile (was src-tauri/Cargo.lock)
 ├── crates/
-│   ├── engine/         psyche-subtitle-toolkit, imported with history (git subtree)
+│   ├── engine/         animesubs-engine (was psyche-subtitle-toolkit), imported with history
 │   ├── api/            animesubs-api: wire types, API version, error codes, home-dir files
 │   ├── server/         animesubs-server: axum router, auth, job queue, shared operations
 │   ├── client/         animesubs-client: typed client + find/start/stop a server
@@ -63,7 +63,7 @@ Dependency rules:
 
 | Crate | Depends on | Why |
 |---|---|---|
-| `engine` | — | Pure subtitle/media/provider logic. Keeps its MIT license and its own `LICENSE`. |
+| `engine` | — | `animesubs-engine`: subtitle formats, providers, MKV (mkvmerge) and ffprobe/ffmpeg backends, OCR. |
 | `api` | serde, dirs | The contract. Tiny, no I/O beyond path helpers. |
 | `server` | api, engine | Owns jobs. `ops` holds the operations so the CLI can run them in-process. |
 | `client` | api, reqwest | No engine: the desktop app links it without the OCR/MNN native stack. |
@@ -126,7 +126,7 @@ server".
 
 Port 0 avoids conflicts; `server.json` tells clients the real port. A server
 started by hand with `animesubs-cli serve` uses the fixed default port 9650
-so scripts and remote tooling have a stable address.
+(decided) so scripts and remote tooling have a stable address.
 
 In the slice the app does this once at startup, after the FFmpeg check and
 without blocking the UI, and shows the result in the header's engine popover
@@ -134,18 +134,32 @@ without blocking the UI, and shows the result in the header's engine popover
 
 ### Stop
 
-- **Owned** server, app closing normally: `POST /v1/shutdown`, wait up to 5 s,
-  then kill (`RunEvent::Exit` in `src-tauri/src/lib.rs`).
+- **Owned** server, window closed, no job queued or running: as before, the
+  app quits and stops the server (`POST /v1/shutdown`, wait up to 5 s, then
+  kill; `RunEvent::Exit` in `src-tauri/src/lib.rs`).
+- **Owned** server, window closed while jobs are queued or running: the
+  window hides and a tray icon appears (`src-tauri/src/background.rs`). It
+  shows "N jobs running · done/total lines", reopens the window, and offers
+  Quit: immediately when idle, otherwise a confirmation with "Quit when
+  finished" or "Stop jobs and quit". When the jobs finish while the window
+  is hidden, the app quits and stops the server. Reopening the window
+  cancels the pending quit. Where no tray is available (Linux without
+  libayatana-appindicator, e.g. WSLg) the window is minimized instead.
 - **Owned** server, app crashing or killed: the app holds the write end of
-  the server's stdin; the OS closes it, the server sees EOF and shuts down
-  cleanly (verified by killing the app with `SIGKILL`).
+  the server's stdin and the OS closes it. An idle server stops at once. A
+  server with queued or running jobs finishes them, then stops once no client
+  has made an authenticated request for 30 s (`--orphan-grace`), so a CLI
+  polling a job keeps it up and nothing lingers afterwards (verified by
+  killing the real app with `SIGKILL` mid-job).
 - **Borrowed** server (started by the user, a script, or another app
   instance): left running.
 - Standalone: `animesubs-cli stop`, Ctrl-C or SIGTERM.
 
+The background mode covers server jobs. Translations the app still runs
+in-process (§7, step 4) stop when the app quits, as before.
+
 Later: when a newer app finds an older server, it asks it to shut down once
-its queue is empty and starts the bundled one; an owned server could also
-outlive the window while jobs run ("keep translating in the background").
+its queue is empty and starts the bundled one.
 
 ### Lessons taken from Anything
 
@@ -259,15 +273,15 @@ in v1.
 | From | Keep | Notes |
 |---|---|---|
 | **animesubs** | The product: Vue UI and UX (`DESIGN.md`), queue, provider presets and model listing, translation styles, custom prompt, series context extraction (animedb/TMDB), OP/ED/karaoke/sign filtering, ASS style preservation, encoding detection (chardetng/encoding_rs), ffprobe track detection for every container, ffmpeg/mkvmerge embedding with duplicate removal and default flag, backups and restore, settings and `secrets.json` | Its in-process Rust commands move behind the server one flow at a time |
-| **psyche-subtitle-toolkit** → `crates/engine` | ASS/SRT/WebVTT parsers and renderers, inline-tag protection, chunking by provider limits, concurrent chunks, retries with `Retry-After`/backoff/jitter, 9 providers (adds DeepL, Google, Anthropic, OpenCode), validated candidate MKV before replacing, PGS OCR with pinned SHA-256-verified PP-OCRv5 models, resume manifests, file locks | The engine of record; its CLI binary stays during the transition |
-| **shinkai-translator** | ffprobe/ffmpeg media backend (non-MKV containers, `media.rs`), best-stream scoring (`score_stream`), language-tag inference, ASS cue classifier with policy and classification report (`ass_classifier.rs`, `domain.rs`), thinking-mode handling for reasoning models, OCR debug-at-timestamp command | Harvest into the engine with their tests; its OCR overlaps the toolkit's, keep the toolkit's; its TUI config editor is not needed |
+| **psyche-subtitle-toolkit** → `crates/engine` (`animesubs-engine`) | ASS/SRT/WebVTT parsers and renderers, inline-tag protection, chunking by provider limits, concurrent chunks, retries with `Retry-After`/backoff/jitter, 9 providers (adds DeepL, Google, Anthropic, OpenCode), validated candidate MKV before replacing, PGS OCR with pinned SHA-256-verified PP-OCRv5 models, resume manifests, file locks | The engine of record; its CLI binary (now `animesubs-engine`) stays during the transition |
+| **shinkai-translator** | **Ported in this PR**, with its tests: the ffprobe/ffmpeg backend (`media::ffmpeg`: probing, extraction, muxing that adds a track), best-stream scoring (`score_stream`), language-tag inference, and the ASS cue classifier with its policy (`subtitles::classify`). Not ported: thinking-mode handling, the OCR debug command, the TUI config editor | Its OCR overlaps the toolkit's; the toolkit's is kept. The ported code is not wired into the pipeline or the server yet (§7, step 3) |
 
 Duplicates to resolve, engine wins unless noted: three ASS parsers (the
-engine's; animesubs' filter rules become an engine classifier, checked
-against shinkai's classifier tests); two OCR pipelines (toolkit); two
+engine's; shinkai's classifier now runs on it, and animesubs' filter rules
+are to be merged into that classifier); two OCR pipelines (toolkit); two
 provider layers (engine providers; animesubs' presets map onto them); two
-media backends (mkvmerge for MKV from the engine, ffprobe/ffmpeg for the rest
-from shinkai and animesubs).
+media backends, both now in the engine (mkvmerge for MKV, ffprobe/ffmpeg for
+everything else).
 
 ## 7. Migration path for existing AnimeSubs users
 
@@ -282,10 +296,11 @@ shipped and rolled back on its own.
 2. **Bundle the sidecar** (§8). Still no flow depends on it.
 3. **Engine parity**, one feature per PR, each with tests ported from
    animesubs: translation styles and custom prompt, OP/ED/karaoke/sign
-   filtering, context profile in the prompt, encoding detection, ffprobe
-   backend for non-MKV, and an embed that *adds* the translated track,
-   keeps the original (`keepOriginalTrack`, default on) and writes the
-   backup first. The toolkit's in-place track replacement stays available
+   filtering (on top of the ported classifier), context profile in the
+   prompt, encoding detection, track listing through the ported ffprobe
+   backend for non-MKV, and an embed that *adds* the translated track (the
+   ported ffmpeg mux already does), keeps the original
+   (`keepOriginalTrack`, default on) and writes the backup first. The toolkit's in-place track replacement stays available
    only as an explicit option: as is, it would drop the original track,
    which AnimeSubs users do not expect.
 4. **Move flows behind the server**, one at a time, in this order: track
@@ -309,9 +324,12 @@ Data compatibility:
   listing old ones.
 - **Resume manifests** of the toolkit (`.psyche-subtitle-toolkit-progress.json`)
   keep being read; a rename to `.animesubs-progress.json` must read both.
-- **Toolkit CLI users**: `PSYCHE_SUBTITLE_API_KEY` is still honoured, and the
-  engine's own `psyche-subtitle-toolkit` binary keeps building until
-  `animesubs-cli` covers MKV translation.
+- **Toolkit users**: the crate is now `animesubs-engine` 0.5.0 (imports change
+  from `psyche_subtitle_toolkit::` to `animesubs_engine::`) and its CLI binary
+  is `animesubs-engine` until `animesubs-cli` covers MKV translation. The OCR
+  model cache, resume-manifest and lock names and the `PSYCHE_*` variables
+  (`PSYCHE_SUBTITLE_API_KEY`, `PSYCHE_OCR_MODEL_DIR`) keep their old names,
+  so caches and interrupted runs keep working.
 
 ## 8. Build, packaging and CI
 
@@ -320,7 +338,12 @@ Data compatibility:
   `gh workflow run build.yml --ref <branch>` before the next release (the
   release job only runs on tags).
 - CI also runs clippy and tests for the headless crates, and installs
-  MKVToolNix so the real MKV round-trip tests run instead of skipping.
+  MKVToolNix and ffmpeg so the real MKV and ffmpeg round-trip tests run
+  instead of skipping.
+- The app now uses Tauri's `tray-icon` feature. On Linux the tray needs
+  `libayatana-appindicator3` at runtime; the app checks for it and minimizes
+  the window instead when it is missing. Consider adding it to the `.deb` and
+  `.rpm` dependencies.
 - Sidecar (next PR): build `animesubs-cli` per target, copy it to
   `src-tauri/binaries/animesubs-cli-<target-triple>`, add it to
   `bundle.externalBin`.
@@ -333,54 +356,70 @@ Data compatibility:
   Pin it (version + SHA-256) or vendor it, like the OCR models already are.
 - The release profile uses `panic = "abort"`: a panic in a job would take the
   whole server down. Give the sidecar its own profile with unwinding.
-- Licensing: the engine stays MIT (its `LICENSE` is kept); everything else
-  follows the repository license. The repository's `LICENSE` is AGPL-3.0 while
-  the README badge says GPL-3.0; one of them should be corrected.
+- Licensing: everything is MIT (`LICENSE`, every `Cargo.toml`, `package.json`
+  and the Tauri bundle). Releases up to v1.0.7 were published under AGPL-3.0;
+  new versions are MIT. The only other contributor in the history is
+  dependabot.
 
-## 9. What happens to the other repositories (recommendation)
+## 9. The other repositories are retired
 
-The user decides; recommended:
+Both `psyche-subtitle-toolkit` and `shinkai-translator` are retired: the
+toolkit's history lives in `crates/engine`, and what was worth keeping from
+shinkai is ported (§6). The owner deletes both repositories after this PR is
+merged.
 
-- **psyche-subtitle-toolkit**: its history now lives in `crates/engine`.
-  Make a last commit pointing the README to AnimeSubs and archive the repo
-  (keep it private). The crate is on crates.io (0.4.1): either publish future
-  versions from `crates/engine` (set `repository` to AnimeSubs) or leave 0.4.1
-  as the last one; do not maintain two copies.
-- **shinkai-translator**: harvest §6 into the engine with tests, then point
-  its README to AnimeSubs and archive it (public, read-only, not deleted, so
-  links and the crates.io 0.1.3 page still resolve).
+On crates.io, `psyche-subtitle-toolkit` 0.4.1 is superseded by
+`animesubs-engine` (same code, renamed, published from `crates/engine` if and
+when the owner decides), and `shinkai-translator` 0.1.3 is superseded as
+well. Publishing and yanking are left to the owner.
 
 ## 10. First slice (this PR)
 
-- `crates/engine`: the toolkit with its 42 commits, via `git subtree`. The
-  imported history was filtered to remove links to a private repository, a
-  machine-specific path and a stray agent worktree entry; code is unchanged.
+- `crates/engine`: the toolkit with its 42 commits, via `git subtree`, renamed
+  to `animesubs-engine`. The imported history was filtered to remove links to
+  a private repository, a machine-specific path and a stray agent worktree
+  entry; code was otherwise unchanged at import.
+- Ported from shinkai-translator into the engine: ffprobe/ffmpeg backend,
+  best-stream scoring and the ASS cue classifier, with their tests.
 - `animesubs-server`: health, tracks, translate-subtitle jobs with polling and
   progress, shutdown; auth as in §5.
 - `animesubs-cli`: the same operations standalone (`tracks`, `translate`) and
   through the server (`--server`, `health`, `job`, `jobs`, `stop`, `serve`).
 - `animesubs-client` + app: the app starts or connects to the server and shows
-  it in the engine popover; owned servers stop with the app.
+  it in the engine popover; owned servers stop with the app, except that
+  running jobs keep the app in the tray until they finish, and a killed app
+  leaves the server to finish them (§3).
+- MIT license across the repository.
 - Tests: engine suite as imported; API, auth, jobs and failure paths against a
   real server on an ephemeral port; client discovery and lifecycle; CLI
   end-to-end (standalone, `serve` + client commands, the app's start/own/stop
-  flow, and parent death). LLMs are mocked with an OpenAI-compatible
-  wiremock that "translates" by prefixing lines. MKV tests skip without
-  MKVToolNix; OCR model inference is not exercised (no model download).
+  flow, parent death when idle and mid-job); the tray decisions as unit
+  tests in the app. LLMs are mocked with an OpenAI-compatible wiremock that
+  "translates" by prefixing lines. MKV and ffmpeg tests skip without
+  MKVToolNix/ffmpeg (CI installs both); OCR model inference is not exercised
+  (no model download).
 
 Translating subtitles *inside videos* through the server is intentionally
 not in the slice: doing it with the toolkit's in-place replacement would
 break the AnimeSubs contract (keep the original, back it up). It comes with
 step 3 of §7.
 
-## 11. Open questions
+## 11. Decisions and open questions
 
-1. Rename the engine crate to `animesubs-engine`, or keep
-   `psyche-subtitle-toolkit` because of the crates.io name?
-2. Should an owned server keep running after the window closes while jobs
-   are in progress (tray icon), or always stop with the app?
-3. Fixed default port 9650 for manual `serve`: fine, or prefer always-random?
-4. Which license is correct for the repository, AGPL-3.0 (`LICENSE`) or
-   GPL-3.0 (README)?
-5. Should headless jobs be able to read `secrets.json`, or must keys always
-   come with the request or the environment?
+Decided by the owner on 2026-11-08:
+
+1. The engine crate is renamed to `animesubs-engine`; the old crate is
+   superseded (§9).
+2. A server the app started keeps running while its jobs do, with a tray
+   icon; closing an idle app behaves as before; a killed app only stops an
+   idle server (§3).
+3. The default port for a manual `serve` stays 9650.
+4. MIT license everywhere (§8).
+5. Shinkai's useful parts are ported; both old repositories are retired and
+   will be deleted after the merge (§6, §9).
+
+Still open:
+
+- Should headless jobs be able to read `secrets.json`, or must keys always
+  come with the request or the environment?
+- Add `libayatana-appindicator3` to the Linux package dependencies (§8)?
