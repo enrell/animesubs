@@ -813,7 +813,10 @@ mod tests {
         let status = std::process::Command::new(&tools.ffmpeg)
             .args(["-v", "error", "-y", "-i"])
             .arg(&srt)
+            // Keep SubRip: ffmpeg would otherwise convert to ASS for Matroska.
             .args([
+                "-c:s",
+                "srt",
                 "-metadata:s:s:0",
                 "language=jpn",
                 "-metadata:s:s:0",
