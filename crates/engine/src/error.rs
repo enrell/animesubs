@@ -97,6 +97,10 @@ pub enum SubtitleToolkitError {
     /// OCR processing error.
     #[error("OCR error: {message}")]
     Ocr { message: String },
+
+    /// No usable subtitle stream could be selected (ffprobe backend).
+    #[error("subtitle selection failed: {message}")]
+    SubtitleSelection { message: String },
 }
 
 /// Convenience alias for `Result<T, SubtitleToolkitError>`.

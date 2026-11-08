@@ -41,7 +41,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev mkvtoolnix
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev mkvtoolnix ffmpeg
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -63,7 +63,8 @@ jobs:
           DISPLAY: ':99.0'
 
       # Default workspace members: engine, API types, server, client and CLI.
-      # mkvtoolnix (installed above) lets the real MKV round-trip tests run.
+      # mkvtoolnix and ffmpeg (installed above) let the real MKV and ffmpeg
+      # round-trip tests run instead of skipping.
       - name: Engine, server and CLI clippy
         run: cargo clippy --all-targets -- -D warnings
 

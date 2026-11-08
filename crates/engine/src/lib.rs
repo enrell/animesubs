@@ -101,7 +101,7 @@
 
 /// Error types for the subtitle toolkit.
 pub mod error;
-/// MKV container inspection and manipulation (mkvmerge/mkvextract wrappers).
+/// Media containers: MKV through MKVToolNix, everything else through ffprobe/ffmpeg.
 pub mod media;
 /// OCR pipeline for PGS (bitmap) subtitles via PaddleOCR.
 pub mod ocr;
@@ -119,6 +119,9 @@ pub use error::{Result, SubtitleToolkitError};
 // OCR
 pub use ocr::{OcrConfig, OcrLanguage, ocr_pgs_to_srt};
 
+// ffprobe/ffmpeg backend
+pub use media::ffmpeg::{FfmpegTools, ProbedStream, probe_subtitle_streams};
+
 // MKV inspection
 pub use media::mkv::{
     MkvInfo, MkvTrack, MkvTrackProperties, SubtitleFormat, inspect_mkv, select_ass_track,
@@ -132,7 +135,10 @@ pub use pipeline::{
 };
 
 // Subtitle model
-pub use subtitles::ass::AssSubtitle;
+pub use subtitles::ass::{AssEvent, AssSubtitle};
+pub use subtitles::classify::{
+    ClassificationPolicy, CueClassification, CueDisposition, CueKind, classify_ass,
+};
 pub use subtitles::model::{SubtitleCue, SubtitleDocument};
 pub use subtitles::srt::SrtSubtitle;
 pub use subtitles::structured::{
