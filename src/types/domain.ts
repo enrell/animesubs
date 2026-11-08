@@ -29,6 +29,14 @@ export interface OperationResult {
   data: string | null
 }
 
+export interface LocalServerStatus {
+  available: boolean
+  owned: boolean
+  url: string | null
+  version: string | null
+  message: string
+}
+
 export interface ExtractResult {
   success: boolean
   output_path: string | null

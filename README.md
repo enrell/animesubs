@@ -5,7 +5,7 @@ Desktop app to extract, translate and embed subtitles into videos.
 <img width="1313" height="864" alt="image" src="https://github.com/user-attachments/assets/908574b4-a897-4921-a2d9-de9297d509d5" />
 
 
-![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
 ## Features
 
@@ -147,6 +147,21 @@ Go to Settings and configure your preferred provider:
 ### macOS security warning
 If macOS blocks the app, go to System Preferences > Security & Privacy and allow it.
 
+## Local server and CLI (preview)
+
+AnimeSubs is becoming a desktop app on top of a local server that also works
+on its own, for scripts and media servers. The `animesubs-cli` binary runs the
+engine directly or drives that server:
+
+```bash
+cargo run -p animesubs-cli -- translate ep01.ass --to pt-BR --provider ollama --model qwen3
+cargo run -p animesubs-cli -- serve        # localhost only, token in the app's config dir
+cargo run -p animesubs-cli -- health
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design, the API and
+the migration plan.
+
 ## Contributing
 
 ### Quality Assurance
@@ -192,4 +207,4 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 ```
 
 ## License
-[GPL-3.0](LICENSE)
+[MIT](LICENSE). Releases up to v1.0.7 were published under AGPL-3.0; later versions are MIT.

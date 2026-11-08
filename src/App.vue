@@ -34,6 +34,11 @@
                       {{ t('app.ffmpeg', { status: ffmpegStatusLabel }) }}
                     </span>
                   </div>
+                  <div class="engine-row">
+                    <span class="engine-label" :title="localServer?.url || localServer?.message || ''">
+                      {{ t('app.localServer', { status: localServerLabel }) }}
+                    </span>
+                  </div>
                 </div>
               </n-popover>
 
@@ -378,7 +383,7 @@ import {
   AddOutline
 } from '@vicons/ionicons5'
 import { getCurrentWindow, type DragDropEvent } from '@tauri-apps/api/window'
-import { scanFolderForVideos } from './api/animesubs'
+import { localServerStatus, scanFolderForVideos } from './api/animesubs'
 import { hasUsableApiConfig, sharedLanguageOptions } from './config/settings'
 import {
   defaultInterfaceLanguage,
@@ -394,7 +399,12 @@ import { useVideoFiles } from './composables/useVideoFiles'
 import { useTranslationJob } from './composables/useTranslationJob'
 import { useQueueStates } from './composables/useQueueStates'
 import { useContextProfile } from './composables/useContextProfile'
-import type { BackupInfo, ContextProfile, SelectedFile } from './types/domain'
+import type {
+  BackupInfo,
+  ContextProfile,
+  LocalServerStatus,
+  SelectedFile
+} from './types/domain'
 import type { ThemeName } from './themes/themes'
 import QueueRow from './components/QueueRow.vue'
 import LogDrawer from './components/LogDrawer.vue'
@@ -481,6 +491,26 @@ const ffmpegStatusLabel = computed(() => {
   if (!ffmpegStatus.value) return t('app.checking')
   return ffmpegStatus.value.success ? t('app.online') : t('app.missing')
 })
+
+// Local engine server (preview): started or reused at launch, optional for now.
+const localServer = ref<LocalServerStatus | null>(null)
+const localServerLabel = computed(() => {
+  if (!localServer.value) return t('app.checking')
+  return localServer.value.available ? t('app.online') : t('app.missing')
+})
+const refreshLocalServer = async () => {
+  try {
+    localServer.value = await localServerStatus(getSettings()?.interfaceLanguage)
+  } catch (error) {
+    localServer.value = {
+      available: false,
+      owned: false,
+      url: null,
+      version: null,
+      message: String(error)
+    }
+  }
+}
 
 const {
   contextProfile,
@@ -695,6 +725,7 @@ onMounted(async () => {
   loadTranslationOptions()
   loadStoredProfile()
   await checkFFmpeg()
+  void refreshLocalServer()
 
   window.addEventListener('dragover', preventDefaults)
   window.addEventListener('drop', preventDefaults)

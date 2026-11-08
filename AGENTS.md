@@ -29,6 +29,13 @@ animesubs/
 │   │   ├── models.rs       # Data models
 │   │   └── utils.rs        # Utility functions
 │   └── Cargo.toml
+├── crates/                 # Cargo workspace members (see docs/ARCHITECTURE.md)
+│   ├── engine/             # animesubs-engine (formerly psyche-subtitle-toolkit)
+│   ├── api/                # Local server wire types and home-dir files
+│   ├── server/             # Localhost HTTP/JSON server, job queue
+│   ├── client/             # Client used by the app and the CLI
+│   └── cli/                # `animesubs-cli` (standalone + `serve`)
+├── Cargo.toml              # Workspace root (release profile lives here)
 └── public/                 # Static assets
 ```
 
@@ -49,6 +56,14 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 
 # Run tests
 cargo test --manifest-path src-tauri/Cargo.toml
+
+# Engine, server, client and CLI (default workspace members, no GTK needed)
+cargo clippy --all-targets -- -D warnings
+cargo test
+
+# Local server and CLI
+cargo run -p animesubs-cli -- serve
+cargo run -p animesubs-cli -- translate ep01.ass --to pt-BR --provider ollama --model qwen3
 
 # Quality assurance
 rustquty qa --project-dir src-tauri
@@ -116,7 +131,7 @@ git status --short --branch
 2. Bump the patch version in all app manifests:
 - `package.json`
 - `src-tauri/Cargo.toml`
-- `src-tauri/Cargo.lock` package entry for `animesubs`
+- `Cargo.lock` (workspace root) package entry for `animesubs`
 - `src-tauri/tauri.conf.json`
 
 3. Run local validation before committing:

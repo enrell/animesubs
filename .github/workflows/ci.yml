@@ -6,6 +6,9 @@ on:
     paths:
       - 'src/**'
       - 'src-tauri/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'package.json'
       - 'bun.lock'
       - 'tsconfig.json'
@@ -16,6 +19,9 @@ on:
     paths:
       - 'src/**'
       - 'src-tauri/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'package.json'
       - 'bun.lock'
       - 'tsconfig.json'
@@ -35,12 +41,10 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev mkvtoolnix ffmpeg
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       - name: Install dependencies
         run: bun install
@@ -58,6 +62,15 @@ jobs:
         env:
           DISPLAY: ':99.0'
 
+      # Default workspace members: engine, API types, server, client and CLI.
+      # mkvtoolnix and ffmpeg (installed above) let the real MKV and ffmpeg
+      # round-trip tests run instead of skipping.
+      - name: Engine, server and CLI clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Engine, server and CLI tests
+        run: cargo test
+
   quality:
     runs-on: ubuntu-latest
     steps:
@@ -72,8 +85,6 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       - name: Install rustquty
         run: cargo install rustquty --version "^0.4.2"

@@ -51,8 +51,6 @@ jobs:
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       - name: Install dependencies
         run: bun install
@@ -67,7 +65,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           chmod +x fix-appimage.sh
-          APPIMAGE=$(find src-tauri/target -name "*.AppImage" | head -1)
+          APPIMAGE=$(find target -name "*.AppImage" | head -1)
           if [ -n "$APPIMAGE" ]; then
             ./fix-appimage.sh "$APPIMAGE"
           fi
@@ -75,7 +73,7 @@ jobs:
       - name: Prepare raw binary
         shell: bash
         run: |
-          BINARY="src-tauri/target/${{ matrix.target }}/release/animesubs${{ matrix.binary_ext }}"
+          BINARY="target/${{ matrix.target }}/release/animesubs${{ matrix.binary_ext }}"
           if [ -f "$BINARY" ]; then
             cp "$BINARY" "animesubs-${{ matrix.artifact }}${{ matrix.binary_ext }}"
           fi
@@ -86,12 +84,12 @@ jobs:
           name: animesubs-${{ matrix.artifact }}
           path: |
             animesubs-${{ matrix.artifact }}${{ matrix.binary_ext }}
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.rpm
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            target/${{ matrix.target }}/release/bundle/**/*.deb
+            target/${{ matrix.target }}/release/bundle/**/*.rpm
+            target/${{ matrix.target }}/release/bundle/**/*.dmg
+            target/${{ matrix.target }}/release/bundle/**/*.exe
+            target/${{ matrix.target }}/release/bundle/**/*.msi
 
   release:
     needs: build

@@ -4,6 +4,7 @@ version = "1.0.7"
 description = "Desktop app to extract, translate and embed subtitles into videos."
 authors = ["Ênrell"]
 edition = "2021"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,18 +15,11 @@ edition = "2021"
 name = "animesubs_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
-[profile.release]
-codegen-units = 1 # Allows LLVM to perform better optimization.
-lto = true # Enables link-time-optimizations.
-opt-level = 3 # Prioritizes small binary size. Use `3` if you prefer speed.
-panic = "abort" # Higher performance by disabling panic handlers.
-strip = true # Ensures debug symbols are removed.
-
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -40,3 +34,6 @@ encoding_rs = "0.8"
 chardetng = "0.1"
 futures = "0.3"
 animedb = { version = "0.6", default-features = false, features = ["remote"] }
+# Client of the local server; does not pull in the engine.
+animesubs-api = { path = "../crates/api" }
+animesubs-client = { path = "../crates/client" }

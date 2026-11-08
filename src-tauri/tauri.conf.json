@@ -23,6 +23,7 @@
   },
   "bundle": {
     "active": true,
+    "license": "MIT",
     "targets": "all",
     "icon": [
       "icons/icon.icns",

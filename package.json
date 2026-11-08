@@ -2,6 +2,7 @@
   "name": "animesubs",
   "private": true,
   "version": "1.0.7",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
