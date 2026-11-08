@@ -14,7 +14,8 @@ use super::model::{SubtitleCue, SubtitleDocument};
 /// ```
 /// use psyche_subtitle_toolkit::subtitles::vtt::VttSubtitle;
 ///
-/// let input = "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHello world\n\n2\n00:00:03.000 --> 00:00:04.000\nGoodbye\n";
+/// let input = "WEBVTT\n\n1\n00:00:01.000 --> 00:00:02.000\nHello world\n\n\
+///     2\n00:00:03.000 --> 00:00:04.000\nGoodbye\n";
 /// let vtt = VttSubtitle::parse(input).unwrap();
 /// assert_eq!(vtt.document().cues.len(), 2);
 /// ```
@@ -224,7 +225,9 @@ mod tests {
 
     #[test]
     fn parses_windows_crlf_blocks() {
-        let input = "WEBVTT\r\n\r\n1\r\n00:00:01.000 --> 00:00:02.000\r\nLine one\r\nLine two\r\n\r\n2\r\n00:00:03.000 --> 00:00:04.000\r\nWorld\r\n";
+        let input = "WEBVTT\r\n\r\n1\r\n00:00:01.000 --> 00:00:02.000\r\n\
+            Line one\r\nLine two\r\n\r\n2\r\n00:00:03.000 --> 00:00:04.000\r\n\
+            World\r\n";
         let vtt = VttSubtitle::parse(input).unwrap();
         assert_eq!(vtt.document().cues.len(), 2);
         assert_eq!(vtt.document().cues[0].text, "Line one\nLine two");
@@ -279,7 +282,9 @@ mod tests {
 
     #[test]
     fn preserves_note_style_and_region_blocks() {
-        let input = "WEBVTT\n\nNOTE\nThis is a note\n\nSTYLE\n::cue { color: lime; }\n\nREGION\nid:fred\n\n1\n00:00:01.000 --> 00:00:02.000\nHello\n";
+        let input = "WEBVTT\n\nNOTE\nThis is a note\n\nSTYLE\n::cue { color: lime; }\n\
+            \nREGION\nid:fred\n\n1\n00:00:01.000 --> 00:00:02.000\n\
+            Hello\n";
         let vtt = VttSubtitle::parse(input).unwrap();
         assert_eq!(vtt.document().cues.len(), 1);
         let rendered = vtt.render();

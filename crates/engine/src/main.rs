@@ -37,7 +37,8 @@ enum Command {
         #[arg(
             long,
             default_value = "ollama",
-            help = "Translation backend: ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
+            help = "Translation backend: ollama, openai, \
+                opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
         )]
         provider: String,
 
@@ -106,7 +107,8 @@ enum Command {
         #[arg(
             long,
             default_value = "1",
-            help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, openai/opencode-zen/opencode-go/openrouter/gemini: 2)"
+            help = "Max concurrent chunk translations (ollama: 3, deepl: 5, google: 10, \
+                openai/opencode-zen/opencode-go/openrouter/gemini: 2)"
         )]
         parallel: usize,
     },
@@ -124,7 +126,8 @@ enum Command {
         #[arg(
             long,
             default_value = "ollama",
-            help = "Translation backend: ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
+            help = "Translation backend: ollama, openai, \
+                opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
         )]
         provider: String,
 
@@ -353,7 +356,8 @@ fn build_translator(
         unknown => Err(psyche_subtitle_toolkit::SubtitleToolkitError::Translation {
             provider: "cli",
             message: format!(
-                "unknown provider `{unknown}`, supported: ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
+                "unknown provider `{unknown}`, supported: \
+                    ollama, openai, opencode-zen, opencode-go, openrouter, anthropic, deepl, google, gemini"
             ),
         }),
     }

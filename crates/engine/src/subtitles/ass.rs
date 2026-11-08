@@ -205,7 +205,9 @@ fn encode_ass_text(text: &str) -> String {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "[Script Info]\nTitle: Test\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello\\Nworld";
+    const SAMPLE: &str = "[Script Info]\nTitle: Test\n\n[Events]\n\
+        Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n\
+        Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hello\\Nworld";
 
     #[test]
     fn parses_ass_dialogue() {

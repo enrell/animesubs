@@ -343,7 +343,8 @@ pub async fn mux_subtitle_in_place(
             Err(rollback_error) => {
                 let preserved_dir = transaction_dir.keep();
                 Err(SubtitleToolkitError::Io(std::io::Error::other(format!(
-                    "failed to install muxed MKV ({error}) and rollback original ({rollback_error}); backup remains at {}",
+                    "failed to install muxed MKV ({error}) and rollback original ({rollback_error}); \
+                        backup remains at {}",
                     preserved_dir.join("original.mkv").display()
                 ))))
             }
@@ -502,7 +503,9 @@ async fn run_status(
 mod tests {
     use super::*;
 
-    const ASS_HEADER: &str = "[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Default,Arial,20\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
+    const ASS_HEADER: &str = "[Script Info]\nScriptType: v4.00+\n\
+        \n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Default,Arial,20\n\
+        \n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n";
 
     #[tokio::test]
     async fn real_mux_preserves_track_order_name_and_flags() {

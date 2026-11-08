@@ -187,7 +187,9 @@ mod tests {
 
     #[test]
     fn parses_windows_crlf_blocks() {
-        let input = "1\r\n00:00:01,000 --> 00:00:02,000\r\nLine one\r\nLine two\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\nWorld\r\n";
+        let input = "1\r\n00:00:01,000 --> 00:00:02,000\r\nLine one\r\n\
+            Line two\r\n\r\n2\r\n00:00:03,000 --> 00:00:04,000\r\n\
+            World\r\n";
         let srt = SrtSubtitle::parse(input).unwrap();
         assert_eq!(srt.document().cues.len(), 2);
         assert_eq!(srt.document().cues[0].text, "Line one\nLine two");

@@ -147,7 +147,8 @@ fn resume_action(
 
     Err(SubtitleToolkitError::Progress {
         message: format!(
-            "{canonical_path} changed after translation started but before its checkpoint was committed; inspect the MKV before resuming"
+            "{canonical_path} changed after translation started but before its checkpoint was committed; \
+                inspect the MKV before resuming"
         ),
     })
 }
@@ -1477,7 +1478,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ];
         for i in 1..=300 {
             lines.push(format!(
-                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,This is subtitle line number {i} with enough text to fill space",
+                "Dialogue: 0,0:00:{:02}.00,0:00:{:02}.00,Default,,0,0,0,,\
+                    This is subtitle line number {i} with enough text to fill space",
                 i, i + 1,
             ));
         }

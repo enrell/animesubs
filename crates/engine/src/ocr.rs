@@ -1125,7 +1125,8 @@ fn normalize_language_name(value: &str) -> String {
 fn model_bundle(profile: ResolvedOcrProfile) -> ModelBundle {
     let detection = ModelArtifact {
         file_name: "PP-OCRv5_mobile_det.mnn",
-        url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/PP-OCRv5_mobile_det.mnn",
+        url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/\
+            fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/PP-OCRv5_mobile_det.mnn",
         size: 4_760_244,
         sha256: "326f846bb5c903282e116ea089e8796b67921586726cca9457730436a79684c3",
     };
@@ -1134,13 +1135,15 @@ fn model_bundle(profile: ResolvedOcrProfile) -> ModelBundle {
         ResolvedOcrProfile::English => (
             ModelArtifact {
                 file_name: "en_PP-OCRv5_mobile_rec_infer.mnn",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/en_PP-OCRv5_mobile_rec_infer.mnn",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/\
+                    fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/en_PP-OCRv5_mobile_rec_infer.mnn",
                 size: 3_967_840,
                 sha256: "c5e747fb69275e9d99fbe54f97642c65681c3e4244383f825d1d7668e9aece81",
             },
             ModelArtifact {
                 file_name: "ppocr_keys_en.txt",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/ppocr_keys_en.txt",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/\
+                    fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/ppocr_keys_en.txt",
                 size: 1_416,
                 sha256: "e025a66d31f327ba0c232e03f407ae8d105e1e709e7ccb3f408aa778c24e70d6",
             },
@@ -1148,13 +1151,15 @@ fn model_bundle(profile: ResolvedOcrProfile) -> ModelBundle {
         ResolvedOcrProfile::Latin => (
             ModelArtifact {
                 file_name: "latin_PP-OCRv5_mobile_rec_infer.mnn",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/latin_PP-OCRv5_mobile_rec_infer.mnn",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/\
+                    fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/latin_PP-OCRv5_mobile_rec_infer.mnn",
                 size: 4_065_440,
                 sha256: "f3da21186ade13e0d3553867205a8983d9fda46e10b6a15e5f6308325e6e7a55",
             },
             ModelArtifact {
                 file_name: "ppocr_keys_latin.txt",
-                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/ppocr_keys_latin.txt",
+                url: "https://raw.githubusercontent.com/zibo-chen/rust-paddle-ocr/\
+                    fb21fefb3ace6090ef6fbdda56ae1560dc2a0bae/models/ppocr_keys_latin.txt",
                 size: 2_616,
                 sha256: "ccbcc45730b3fbbd9050c5bc74db6a99067141ef1035e3d14889a84a6b9b1aff",
             },

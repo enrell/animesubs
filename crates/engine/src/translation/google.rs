@@ -7,7 +7,9 @@ use super::{
     provider_transport_error,
 };
 
-/// Translator backend that calls the [Google Cloud Translation v2](https://cloud.google.com/translate/docs/reference/rest/v2/translate) endpoint.
+/// Translator backend that calls the [Google Cloud Translation v2][v2] endpoint.
+///
+/// [v2]: https://cloud.google.com/translate/docs/reference/rest/v2/translate
 ///
 /// Uses API key authentication via the `key` query parameter.
 /// The first 500,000 characters/month are free.
