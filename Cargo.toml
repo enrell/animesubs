@@ -3,12 +3,16 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/engine",
+    "crates/api",
+    "crates/server",
 ]
 # `cargo build` / `cargo test` at the root skip the desktop app, so the engine,
 # server and CLI build on machines without the WebKitGTK/GTK system libraries.
 # Use `--workspace` (or `-p animesubs`) to include the app.
 default-members = [
     "crates/engine",
+    "crates/api",
+    "crates/server",
 ]
 
 # Moved from src-tauri/Cargo.toml: profiles are only read from the workspace root.

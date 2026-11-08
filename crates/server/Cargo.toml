@@ -1,0 +1,25 @@
+[package]
+name = "animesubs-server"
+version = "0.1.0"
+edition = "2024"
+description = "Localhost HTTP/JSON server running animesubs engine jobs"
+publish = false
+
+[dependencies]
+animesubs-api = { path = "../api" }
+psyche-subtitle-toolkit = { path = "../engine" } # the engine
+async-trait = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+fs2 = "0.4"
+getrandom = "0.3"
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = [
+    "fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time",
+] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+tempfile = "3"
+wiremock = "0.6"
