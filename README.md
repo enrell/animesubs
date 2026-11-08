@@ -147,6 +147,21 @@ Go to Settings and configure your preferred provider:
 ### macOS security warning
 If macOS blocks the app, go to System Preferences > Security & Privacy and allow it.
 
+## Local server and CLI (preview)
+
+AnimeSubs is becoming a desktop app on top of a local server that also works
+on its own, for scripts and media servers. The `animesubs-cli` binary runs the
+engine directly or drives that server:
+
+```bash
+cargo run -p animesubs-cli -- translate ep01.ass --to pt-BR --provider ollama --model qwen3
+cargo run -p animesubs-cli -- serve        # localhost only, token in the app's config dir
+cargo run -p animesubs-cli -- health
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design, the API and
+the migration plan.
+
 ## Contributing
 
 ### Quality Assurance
