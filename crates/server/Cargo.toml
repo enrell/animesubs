@@ -12,6 +12,8 @@ animesubs-engine = { path = "../engine" }
 async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 fs2 = "0.4"
+# Already in the tree through axum; needed to turn a channel into a response body.
+futures-util = { version = "0.3", default-features = false }
 getrandom = "0.3"
 serde_json = "1"
 thiserror = "2"

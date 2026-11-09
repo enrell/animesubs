@@ -184,6 +184,8 @@ Base URL from `server.json`. JSON in and out. Every endpoint except
 | `POST /v1/jobs` | `JobSpec` (below) | `202 JobStatus` |
 | `GET /v1/jobs` | — | `200 {jobs: [JobStatus]}` (oldest first) |
 | `GET /v1/jobs/{id}` | — | `200 JobStatus` |
+| `POST /v1/jobs/{id}/cancel` | — | `200 JobStatus` (`cancelled`); `409 not_cancellable` once it succeeded or failed |
+| `GET /v1/events[?job=<id>]` | — | `200 text/event-stream` of `event: job` frames, `data:` a `JobStatus` |
 | `POST /v1/shutdown` | — | `202` |
 
 ```jsonc
@@ -201,8 +203,8 @@ Base URL from `server.json`. JSON in and out. Every endpoint except
 // JobStatus
 {
   "id": "job-3f9c…", "kind": "translate_subtitle",
-  "state": "queued|running|succeeded|failed",
-  "phase": "queued|starting|parsing|translating|writing|done|failed",
+  "state": "queued|running|succeeded|failed|cancelled",
+  "phase": "queued|starting|parsing|translating|writing|done|failed|cancelled",
   "progress": { "done": 120, "total": 310 },  // translated cues; null until known
   "input": "…", "output": "…", "target_language": "pt-BR",
   "created_at_ms": 0, "started_at_ms": 0, "finished_at_ms": 0,
@@ -212,7 +214,8 @@ Base URL from `server.json`. JSON in and out. Every endpoint except
 
 Errors are always `{"error": {"code", "message"}}`. Codes: `unauthorized`
 (401), `forbidden_host` / `forbidden_origin` (403), `bad_request` (400/422),
-`not_found` (404), `already_exists` (409), `unsupported` (422),
+`not_found` (404), `already_exists` (409), `not_cancellable` (409),
+`interrupted` (a job's error after a restart), `unsupported` (422),
 `provider_error` (502), `missing_tool` (503), `engine_error`, `internal`.
 
 Provider kinds are the engine's: `ollama`, `openai` (any OpenAI-compatible
@@ -226,17 +229,39 @@ Versioning: additive changes (new fields, endpoints, job kinds, error codes)
 stay in v1; clients ignore unknown fields. Breaking changes get `/v2` and
 `api: 2`, and the server serves both for at least one release.
 
-Jobs run one at a time (each job already translates chunks concurrently) and
-live in memory. Progress counts the cues returned by successful provider
+Jobs run one at a time (each job already translates chunks concurrently).
+Progress counts the cues returned by successful provider
 responses, through a `Translator` decorator, so the engine did not have to
 change; it can run ahead when the engine retries a rejected chunk and is
 clamped to the total.
 
-Planned, in order: `POST /v1/jobs/{id}/cancel`; `GET /v1/events` (SSE stream
-of job updates, replacing polling in the app); engine-native progress events;
-job kinds `extract_subtitle`, `embed_subtitle`, `translate_video` (§6);
-`GET/PUT /v1/settings`; `GET /v1/backups`; persisted jobs under
-`<home>/jobs/` with resume after restart.
+**Cancel.** A queued job is cancelled at once; a running job's task is
+aborted, its temporary output removed, and the queue moves to the next job.
+Nothing is written to `output`. Cancelling a cancelled job is idempotent
+(200); a job that succeeded or failed answers `409 not_cancellable`, as does
+a running job that has already renamed its output into place.
+
+**Events.** `GET /v1/events` sends one `event: job` frame per existing job
+(oldest first), then a frame on every state or phase change and at most
+every 250 ms per job for progress-only changes; a `: keep-alive` comment
+every 15 s. `?job=<id>` limits the stream to one job (404 when unknown). A
+subscriber that falls behind skips intermediate progress frames but always
+receives each job's latest status, so it never misses the terminal frame. An
+open stream counts as an attached client for `--orphan-grace`, and closes
+when the server stops (`/v1/shutdown`, stdin EOF, signals).
+
+**Persistence.** Each job is kept in `<home>/jobs/<id>.json`
+(`{status, spec}`, atomic temp + rename, `0600` on Unix), written on every
+state or phase change and at most every few seconds for progress. The
+provider's `api_key` is never written. On start the server loads them: jobs
+that had finished are listed as before; jobs found `queued` or `running`
+become `failed` with `interrupted`, because without the key they cannot be
+resumed safely. The newest 200 finished jobs are kept; older files are
+pruned. A corrupt file is logged and skipped.
+
+Planned, in order: engine-native progress events; job kinds
+`extract_subtitle`, `embed_subtitle`, `translate_video` (§6);
+`GET/PUT /v1/settings`; `GET /v1/backups`; resuming interrupted jobs.
 
 ## 5. Security
 

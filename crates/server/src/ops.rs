@@ -13,6 +13,7 @@ use animesubs_engine::{
     translate_ass, translate_srt, translate_vtt,
 };
 
+use crate::control::JobControl;
 use crate::progress::{CountingTranslator, JobProgress};
 use crate::providers;
 
@@ -270,10 +271,27 @@ impl Parsed {
     }
 }
 
+/// Internal error code of a job stopped by [`JobControl::cancel`]; the job
+/// queue reports such jobs as `cancelled`, not as failed.
+pub const CANCELLED: &str = "cancelled";
+
+fn cancelled() -> OpError {
+    OpError::new(409, CANCELLED, "job was cancelled")
+}
+
 /// Run a translate plan; returns the written output path.
 pub async fn run_translate(
     plan: &TranslatePlan,
     progress: Arc<JobProgress>,
+) -> Result<PathBuf, OpError> {
+    run_translate_with(plan, progress, &JobControl::new()).await
+}
+
+/// [`run_translate`] that can be cancelled through `control`.
+pub async fn run_translate_with(
+    plan: &TranslatePlan,
+    progress: Arc<JobProgress>,
+    control: &Arc<JobControl>,
 ) -> Result<PathBuf, OpError> {
     progress.set_phase("parsing");
     let bytes = tokio::fs::read(&plan.input)
@@ -319,14 +337,20 @@ pub async fn run_translate(
     };
 
     progress.set_phase("writing");
-    write_atomically(&plan.output, rendered.as_bytes(), plan.overwrite).await?;
+    write_atomically(&plan.output, rendered.into_bytes(), plan.overwrite, control).await?;
     progress.complete();
     progress.set_phase("done");
     Ok(plan.output.clone())
 }
 
 /// Write next to the destination, then rename, so readers never see a partial file.
-async fn write_atomically(path: &Path, data: &[u8], overwrite: bool) -> Result<(), OpError> {
+/// A cancellation before the rename removes the temporary file and writes nothing.
+async fn write_atomically(
+    path: &Path,
+    data: Vec<u8>,
+    overwrite: bool,
+    control: &Arc<JobControl>,
+) -> Result<(), OpError> {
     if !overwrite && tokio::fs::try_exists(path).await.unwrap_or(false) {
         return Err(OpError::new(
             409,
@@ -343,12 +367,37 @@ async fn write_atomically(path: &Path, data: &[u8], overwrite: bool) -> Result<(
         .unwrap_or_default();
     let partial = path.with_file_name(format!(".{name}.{}.partial", std::process::id()));
     let io = |error: std::io::Error| OpError::from(SubtitleToolkitError::from(error));
-    tokio::fs::write(&partial, data).await.map_err(io)?;
-    if let Err(error) = tokio::fs::rename(&partial, path).await {
-        let _ = tokio::fs::remove_file(&partial).await;
-        return Err(io(error));
+    if !control.begin_writing() {
+        return Err(cancelled());
     }
-    Ok(())
+    // One blocking task for write + rename: it is never abandoned half-way.
+    let path = path.to_path_buf();
+    let control = control.clone();
+    let written = tokio::task::spawn_blocking(move || {
+        if let Err(error) = std::fs::write(&partial, &data) {
+            let _ = std::fs::remove_file(&partial);
+            return Err(io(error));
+        }
+        match control.commit(|| std::fs::rename(&partial, &path)) {
+            Some(Ok(())) => Ok(()),
+            Some(Err(error)) => {
+                let _ = std::fs::remove_file(&partial);
+                Err(io(error))
+            }
+            None => {
+                let _ = std::fs::remove_file(&partial);
+                Err(cancelled())
+            }
+        }
+    })
+    .await;
+    written.unwrap_or_else(|error| {
+        Err(OpError::new(
+            500,
+            error_codes::INTERNAL,
+            format!("writing the output failed: {error}"),
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -446,6 +495,26 @@ mod tests {
         }
         .into();
         assert_eq!(parse.status, 422);
+    }
+
+    #[tokio::test]
+    async fn cancelled_write_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("out.srt");
+        let control = JobControl::new();
+        control.cancel();
+        let error = write_atomically(&output, b"x".to_vec(), false, &control)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, CANCELLED);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+
+        let control = JobControl::new();
+        write_atomically(&output, b"x".to_vec(), false, &control)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), b"x");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[tokio::test]

@@ -6,18 +6,38 @@
 //! engine will replace this (see `docs/ARCHITECTURE.md`).
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use animesubs_api::Progress;
 use animesubs_engine::{Result, TranslationLimits, TranslationRequest, Translator};
 use async_trait::async_trait;
 
+/// What a [`JobProgress`] listener is told about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressChange {
+    /// The phase changed.
+    Phase,
+    /// The done or total count changed.
+    Count,
+}
+
+type Listener = Box<dyn Fn(ProgressChange) + Send + Sync>;
+
 /// Live state of a running job, shared between the worker and status readers.
-#[derive(Debug)]
 pub struct JobProgress {
     phase: Mutex<String>,
     done: AtomicU64,
     total: AtomicU64,
+    listener: OnceLock<Listener>,
+}
+
+impl std::fmt::Debug for JobProgress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JobProgress")
+            .field("phase", &self.phase())
+            .field("progress", &self.snapshot())
+            .finish_non_exhaustive()
+    }
 }
 
 impl JobProgress {
@@ -26,12 +46,40 @@ impl JobProgress {
             phase: Mutex::new(phase.to_string()),
             done: AtomicU64::new(0),
             total: AtomicU64::new(0),
+            listener: OnceLock::new(),
+        }
+    }
+
+    /// Call `listener` after every change. Only the first listener is kept.
+    /// It runs on the thread making the change, with no lock of this type held.
+    pub fn set_listener(&self, listener: impl Fn(ProgressChange) + Send + Sync + 'static) {
+        let _ = self.listener.set(Box::new(listener));
+    }
+
+    fn notify(&self, change: ProgressChange) {
+        if let Some(listener) = self.listener.get() {
+            listener(change);
         }
     }
 
     pub fn set_phase(&self, phase: &str) {
-        if let Ok(mut current) = self.phase.lock() {
-            phase.clone_into(&mut current);
+        if self.replace_phase(phase) {
+            self.notify(ProgressChange::Phase);
+        }
+    }
+
+    /// Change the phase without telling the listener (the caller publishes it).
+    pub(crate) fn set_phase_silently(&self, phase: &str) {
+        self.replace_phase(phase);
+    }
+
+    fn replace_phase(&self, phase: &str) -> bool {
+        match self.phase.lock() {
+            Ok(mut current) if *current != phase => {
+                phase.clone_into(&mut current);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -41,15 +89,18 @@ impl JobProgress {
 
     pub fn set_total(&self, total: u64) {
         self.total.store(total, Ordering::Relaxed);
+        self.notify(ProgressChange::Count);
     }
 
     pub fn add_done(&self, cues: u64) {
         self.done.fetch_add(cues, Ordering::Relaxed);
+        self.notify(ProgressChange::Count);
     }
 
     pub fn complete(&self) {
         self.done
             .store(self.total.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.notify(ProgressChange::Count);
     }
 
     /// `None` until the total is known.
@@ -142,6 +193,30 @@ mod tests {
         assert_eq!(progress.snapshot(), Some(Progress { done: 2, total: 3 }));
         progress.add_done(5);
         assert_eq!(progress.snapshot(), Some(Progress { done: 3, total: 3 }));
+    }
+
+    #[test]
+    fn listener_hears_phase_and_count_changes() {
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let progress = JobProgress::new("queued");
+        progress.set_listener({
+            let heard = heard.clone();
+            move |change| heard.lock().unwrap().push(change)
+        });
+        progress.set_phase("parsing");
+        progress.set_phase("parsing");
+        progress.set_phase_silently("translating");
+        progress.set_total(4);
+        progress.add_done(1);
+        assert_eq!(
+            *heard.lock().unwrap(),
+            [
+                ProgressChange::Phase,
+                ProgressChange::Count,
+                ProgressChange::Count
+            ]
+        );
+        assert_eq!(progress.phase(), "translating");
     }
 
     #[test]

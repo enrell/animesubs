@@ -222,6 +222,18 @@ async fn serve_then_drive_it_with_the_cli() {
         serde_json::from_slice(&run(cli(&home).arg("jobs")).stdout).unwrap();
     assert_eq!(jobs.as_array().unwrap().len(), 1);
 
+    // A finished job prints its final state and `events --job` exits.
+    let events = stdout(&run(cli(&home).args(["events", "--job", id])));
+    let lines: Vec<serde_json::Value> = events
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 1, "{events}");
+    assert_eq!(lines[0]["state"], "succeeded");
+    let finished = cli(&home).args(["cancel", id]).output().unwrap();
+    assert!(!finished.status.success());
+    assert!(String::from_utf8_lossy(&finished.stderr).contains("not_cancellable"));
+
     run(cli(&home).arg("stop"));
     wait_until("server exit", || server.0.try_wait().unwrap().is_some());
     assert!(!paths::server_info_file(&home).exists());

@@ -12,11 +12,14 @@
 #![deny(unsafe_code)]
 
 pub mod auth;
+pub mod control;
+pub mod events;
 mod http;
 pub mod jobs;
 pub mod ops;
 pub mod progress;
 pub mod providers;
+pub mod store;
 
 use std::fs::File;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -163,8 +166,18 @@ pub async fn start(config: ServerConfig) -> Result<RunningServer, ServerError> {
     let local = listener.local_addr()?;
     let url = format!("http://{local}");
 
+    let store = match store::JobStore::open(&config.home) {
+        Ok(store) => Some(store),
+        Err(error) => {
+            eprintln!(
+                "[jobs] not persisting jobs: cannot use {}: {error}",
+                paths::jobs_dir(&config.home).display()
+            );
+            None
+        }
+    };
     let shutdown = Arc::new(Notify::new());
-    let state = AppState::new(token.clone(), local.port(), shutdown.clone());
+    let state = AppState::new(token.clone(), local.port(), shutdown.clone(), store);
     let state_handle = state.clone();
     write_discovery_file(
         &config.home,
@@ -179,9 +192,14 @@ pub async fn start(config: ServerConfig) -> Result<RunningServer, ServerError> {
     )?;
 
     let signal = shutdown.clone();
+    let stopping = state.clone();
     let task = tokio::spawn(async move {
         axum::serve(listener, router(state))
-            .with_graceful_shutdown(async move { signal.notified().await })
+            .with_graceful_shutdown(async move {
+                signal.notified().await;
+                // Open event streams would otherwise keep the shutdown waiting.
+                stopping.begin_stopping();
+            })
             .await
     });
 
