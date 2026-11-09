@@ -372,3 +372,367 @@ async fn one_server_per_home_and_loopback_only() {
         Err(ServerError::NotLoopback(_))
     ));
 }
+
+async fn submit(
+    server: &RunningServer,
+    input: &Path,
+    llm: &str,
+    api_key: Option<&str>,
+) -> JobStatus {
+    let mut provider = json!({ "kind": "openai", "model": "m", "base_url": llm });
+    if let Some(key) = api_key {
+        provider["api_key"] = json!(key);
+    }
+    let response = authed(server, http().post(format!("{}/v1/jobs", server.url())))
+        .json(&json!({
+            "kind": "translate_subtitle",
+            "input": input,
+            "target_language": "pt-BR",
+            "provider": provider
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    response.json().await.unwrap()
+}
+
+async fn job(server: &RunningServer, id: &str) -> JobStatus {
+    authed(server, http().get(format!("{}/v1/jobs/{id}", server.url())))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap()
+}
+
+async fn cancel(server: &RunningServer, id: &str) -> reqwest::Response {
+    authed(
+        server,
+        http().post(format!("{}/v1/jobs/{id}/cancel", server.url())),
+    )
+    .send()
+    .await
+    .unwrap()
+}
+
+async fn wait_for_state(server: &RunningServer, id: &str, state: JobState) -> JobStatus {
+    for _ in 0..200 {
+        let status = job(server, id).await;
+        if status.state == state {
+            return status;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("job {id} never reached {state:?}");
+}
+
+fn write_input(dir: &Path, name: &str) -> std::path::PathBuf {
+    let input = dir.join(name);
+    std::fs::write(&input, mock_llm::SRT).unwrap();
+    input
+}
+
+/// Every file in `dir`, sorted by name.
+fn file_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[tokio::test]
+async fn cancel_queued_and_running_jobs_then_the_queue_moves_on() {
+    let llm = mock_llm::start_slow(Duration::from_millis(1500)).await;
+    let home = tempfile::tempdir().unwrap();
+    let media = tempfile::tempdir().unwrap();
+    let server = start(home.path()).await;
+    let running = submit(
+        &server,
+        &write_input(media.path(), "a.srt"),
+        &llm.uri(),
+        None,
+    )
+    .await;
+    let queued = submit(
+        &server,
+        &write_input(media.path(), "b.srt"),
+        &llm.uri(),
+        None,
+    )
+    .await;
+    let next = submit(
+        &server,
+        &write_input(media.path(), "c.srt"),
+        &llm.uri(),
+        None,
+    )
+    .await;
+    wait_for_state(&server, &running.id, JobState::Running).await;
+
+    let response = cancel(&server, &queued.id).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cancelled: JobStatus = response.json().await.unwrap();
+    assert_eq!(
+        (cancelled.state, cancelled.phase.as_str()),
+        (JobState::Cancelled, "cancelled")
+    );
+    assert!(cancelled.finished_at_ms.is_some());
+    assert!(cancelled.error.is_none());
+    assert!(cancelled.started_at_ms.is_none());
+
+    let response = cancel(&server, &running.id).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let stopped: JobStatus = response.json().await.unwrap();
+    assert_eq!(stopped.state, JobState::Cancelled);
+    assert_eq!(stopped.phase, "cancelled");
+    assert!(stopped.error.is_none());
+
+    // Idempotent.
+    let again = cancel(&server, &running.id).await;
+    assert_eq!(again.status(), StatusCode::OK);
+    assert_eq!(again.json::<JobStatus>().await.unwrap(), stopped);
+
+    // The worker moves on to the next job.
+    let done = wait_for_terminal(&server, &next.id).await;
+    assert_eq!(done.state, JobState::Succeeded, "{:?}", done.error);
+    assert_eq!(job(&server, &running.id).await, stopped);
+    assert_eq!(
+        file_names(media.path()),
+        ["a.srt", "b.srt", "c.pt-BR.srt", "c.srt"],
+        "cancelled jobs must leave no output or temporary file"
+    );
+
+    let finished = cancel(&server, &next.id).await;
+    assert_eq!(finished.status(), StatusCode::CONFLICT);
+    assert_eq!(error_code(finished).await, "not_cancellable");
+    let unknown = cancel(&server, "job-nope").await;
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+    assert_eq!(error_code(unknown).await, "not_found");
+    server.stop().await.unwrap();
+}
+
+/// Minimal SSE reader: `(event, data)` per frame, `None` at end of stream.
+struct Sse {
+    response: reqwest::Response,
+    buffer: String,
+}
+
+impl Sse {
+    async fn open(server: &RunningServer, query: &str) -> reqwest::Response {
+        authed(
+            server,
+            http().get(format!("{}/v1/events{query}", server.url())),
+        )
+        .send()
+        .await
+        .unwrap()
+    }
+
+    fn new(response: reqwest::Response) -> Self {
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["content-type"].to_str().unwrap(),
+            "text/event-stream"
+        );
+        Self {
+            response,
+            buffer: String::new(),
+        }
+    }
+
+    async fn next(&mut self) -> Option<(String, String)> {
+        loop {
+            if let Some(end) = self.buffer.find("\n\n") {
+                let frame: String = self.buffer.drain(..end + 2).collect();
+                let mut event = String::new();
+                let mut data = String::new();
+                for line in frame.lines() {
+                    if let Some(value) = line.strip_prefix("event: ") {
+                        event = value.into();
+                    } else if let Some(value) = line.strip_prefix("data: ") {
+                        data = value.into();
+                    }
+                }
+                return Some((event, data));
+            }
+            let chunk = tokio::time::timeout(Duration::from_secs(10), self.response.chunk())
+                .await
+                .expect("no event within 10 s");
+            match chunk {
+                Ok(Some(bytes)) => self.buffer.push_str(std::str::from_utf8(&bytes).unwrap()),
+                _ => return None,
+            }
+        }
+    }
+
+    async fn next_job(&mut self) -> Option<JobStatus> {
+        let (event, data) = self.next().await?;
+        assert_eq!(event, "job");
+        Some(serde_json::from_str(&data).unwrap())
+    }
+}
+
+#[tokio::test]
+async fn events_stream_a_snapshot_then_every_change_until_the_terminal_frame() {
+    let fast = mock_llm::start().await;
+    let slow = mock_llm::start_slow(Duration::from_millis(600)).await;
+    let home = tempfile::tempdir().unwrap();
+    let server = start(home.path()).await;
+    let earlier = submit(
+        &server,
+        &write_input(home.path(), "a.srt"),
+        &fast.uri(),
+        None,
+    )
+    .await;
+    let earlier = wait_for_terminal(&server, &earlier.id).await;
+
+    let mut all = Sse::new(Sse::open(&server, "").await);
+    assert_eq!(all.next_job().await.unwrap(), earlier, "snapshot frame");
+
+    let live = submit(
+        &server,
+        &write_input(home.path(), "b.srt"),
+        &slow.uri(),
+        None,
+    )
+    .await;
+    let mut only = Sse::new(Sse::open(&server, &format!("?job={}", live.id)).await);
+    let mut seen = Vec::new();
+    loop {
+        let status = all.next_job().await.unwrap();
+        assert_eq!(status.id, live.id, "only the new job changes");
+        let terminal = status.state.is_terminal();
+        seen.push(status);
+        if terminal {
+            break;
+        }
+    }
+    let states: Vec<JobState> = seen.iter().map(|status| status.state).collect();
+    assert_eq!(states.first(), Some(&JobState::Queued), "{states:?}");
+    assert!(states.contains(&JobState::Running), "{states:?}");
+    assert_eq!(states.last(), Some(&JobState::Succeeded));
+    let phases: Vec<&str> = seen.iter().map(|status| status.phase.as_str()).collect();
+    assert!(phases.contains(&"translating"), "{phases:?}");
+    assert_eq!(seen.last().unwrap().progress.unwrap().done, 2);
+    assert_eq!(seen.last().unwrap(), &job(&server, &live.id).await);
+
+    // The filtered stream sees the same job through to its terminal frame.
+    let mut last = None;
+    while let Some(status) = only.next_job().await {
+        assert_eq!(status.id, live.id);
+        let terminal = status.state.is_terminal();
+        last = Some(status);
+        if terminal {
+            break;
+        }
+    }
+    assert_eq!(last.unwrap().state, JobState::Succeeded);
+
+    let unknown = Sse::open(&server, "?job=job-nope").await;
+    assert_eq!(unknown.status(), StatusCode::NOT_FOUND);
+    let from_page = authed(&server, http().get(format!("{}/v1/events", server.url())))
+        .header("Origin", "https://evil.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(from_page.status(), StatusCode::FORBIDDEN);
+    let anonymous = http()
+        .get(format!("{}/v1/events", server.url()))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+
+    // An open stream counts as an attached client.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(server.state().client_idle_ms(), 0);
+
+    // ... and does not keep the server from stopping; the stream then ends.
+    let response = authed(
+        &server,
+        http().post(format!("{}/v1/shutdown", server.url())),
+    )
+    .send()
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    tokio::time::timeout(Duration::from_secs(5), server.wait())
+        .await
+        .expect("an open event stream kept the server running")
+        .unwrap();
+    assert!(all.next().await.is_none());
+}
+
+#[tokio::test]
+async fn jobs_are_persisted_and_unfinished_ones_come_back_interrupted() {
+    let fast = mock_llm::start().await;
+    let stuck = mock_llm::start_slow(Duration::from_secs(30)).await;
+    let home = tempfile::tempdir().unwrap();
+    let media = tempfile::tempdir().unwrap();
+    let server = start(home.path()).await;
+
+    let finished = submit(
+        &server,
+        &write_input(media.path(), "a.srt"),
+        &fast.uri(),
+        None,
+    )
+    .await;
+    let finished = wait_for_terminal(&server, &finished.id).await;
+    let input = write_input(media.path(), "b.srt");
+    let running = submit(&server, &input, &stuck.uri(), Some("sk-very-secret")).await;
+    wait_for_state(&server, &running.id, JobState::Running).await;
+
+    let file = paths::job_file(home.path(), &running.id);
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(!saved.contains("sk-very-secret"), "{saved}");
+    let saved: animesubs_api::PersistedJob = serde_json::from_str(&saved).unwrap();
+    assert_eq!(saved.status.state, JobState::Running);
+    let animesubs_api::JobSpec::TranslateSubtitle(spec) = &saved.spec;
+    assert_eq!(spec.input, input);
+    assert_eq!(spec.provider.api_key, None);
+    assert_eq!(spec.provider.model.as_deref(), Some("m"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    server.stop().await.unwrap();
+    std::fs::write(
+        paths::jobs_dir(home.path()).join("job-corrupt.json"),
+        "{oops",
+    )
+    .unwrap();
+
+    let server = start(home.path()).await;
+    let listed: JobList = authed(&server, http().get(format!("{}/v1/jobs", server.url())))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let ids: Vec<&str> = listed.jobs.iter().map(|job| job.id.as_str()).collect();
+    assert_eq!(ids, [finished.id.as_str(), running.id.as_str()]);
+    assert_eq!(listed.jobs[0], finished);
+    let interrupted = &listed.jobs[1];
+    assert_eq!(interrupted.state, JobState::Failed);
+    assert_eq!(interrupted.phase, "failed");
+    assert_eq!(interrupted.error.as_ref().unwrap().code, "interrupted");
+    assert!(interrupted.finished_at_ms.is_some());
+    let saved: animesubs_api::PersistedJob =
+        serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(&saved.status, interrupted);
+    assert!(!media.path().join("b.pt-BR.srt").exists());
+
+    // Finished jobs can be cancelled no more after a restart than before.
+    let response = cancel(&server, &running.id).await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    server.stop().await.unwrap();
+}

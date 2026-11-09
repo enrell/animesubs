@@ -15,8 +15,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use animesubs_api::{
-    ApiError, ErrorBody, Health, JobList, JobSpec, JobStatus, ServerInfo, TOKEN_ENV, TracksRequest,
-    TracksResponse, bearer, paths,
+    ApiError, ErrorBody, Health, JOB_EVENT, JobList, JobSpec, JobStatus, ServerInfo, TOKEN_ENV,
+    TracksRequest, TracksResponse, bearer, paths,
 };
 use serde::de::DeserializeOwned;
 
@@ -58,6 +58,8 @@ pub enum ClientError {
     WaitTimeout { id: String, seconds: u64 },
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("malformed event from the server: {0}")]
+    BadEvent(String),
 }
 
 pub type Result<T> = std::result::Result<T, ClientError>;
@@ -69,26 +71,32 @@ impl From<reqwest::Error> for ClientError {
     }
 }
 
+/// The server sends a keep-alive comment every 15 s; silence this long means it is gone.
+const EVENT_READ_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// Typed client for API v1.
 #[derive(Debug, Clone)]
 pub struct Client {
     base: String,
     token: String,
     http: reqwest::Client,
+    /// Without the overall request timeout, for `GET /v1/events`.
+    streaming: reqwest::Client,
 }
 
 impl Client {
     pub fn new(base_url: impl Into<String>, token: impl Into<String>) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            // Never send the token through an HTTP(S)_PROXY from the environment.
-            .no_proxy()
-            .connect_timeout(Duration::from_secs(2))
-            .timeout(Duration::from_secs(60))
-            .build()?;
+        // Never send the token through an HTTP(S)_PROXY from the environment.
+        let builder = || {
+            reqwest::Client::builder()
+                .no_proxy()
+                .connect_timeout(Duration::from_secs(2))
+        };
         Ok(Self {
             base: base_url.into().trim_end_matches('/').to_string(),
             token: token.into(),
-            http,
+            http: builder().timeout(Duration::from_secs(60)).build()?,
+            streaming: builder().read_timeout(EVENT_READ_TIMEOUT).build()?,
         })
     }
 
@@ -133,6 +141,31 @@ impl Client {
     pub async fn jobs(&self) -> Result<Vec<JobStatus>> {
         let request = self.authed(self.http.get(self.url("/v1/jobs")));
         Ok(decode::<JobList>(request.send().await?).await?.jobs)
+    }
+
+    /// Cancel a queued or running job; returns it as `cancelled`. Cancelling a
+    /// cancelled job is a no-op; a finished one fails with `not_cancellable` (409).
+    pub async fn cancel_job(&self, id: &str) -> Result<JobStatus> {
+        let path = format!("/v1/jobs/{id}/cancel");
+        let request = self.authed(self.http.post(self.url(&path)));
+        decode(request.send().await?).await
+    }
+
+    /// Subscribe to `GET /v1/events`: every job's status now, then each update.
+    /// With `job`, only that job's.
+    pub async fn events(&self, job: Option<&str>) -> Result<JobEvents> {
+        let mut request = self.authed(self.streaming.get(self.url("/v1/events")));
+        if let Some(job) = job {
+            request = request.query(&[("job", job)]);
+        }
+        let response = request.send().await?;
+        if !response.status().is_success() {
+            return Err(api_error(response).await);
+        }
+        Ok(JobEvents {
+            response,
+            buffer: Vec::new(),
+        })
     }
 
     /// Ask the server to exit. Running jobs are abandoned.
@@ -180,6 +213,68 @@ impl Client {
     }
 }
 
+/// Job updates from [`Client::events`].
+#[derive(Debug)]
+pub struct JobEvents {
+    response: reqwest::Response,
+    buffer: Vec<u8>,
+}
+
+impl JobEvents {
+    /// The next job status; `None` once the server ends the stream (it is stopping).
+    pub async fn next(&mut self) -> Result<Option<JobStatus>> {
+        loop {
+            while let Some(frame) = take_frame(&mut self.buffer) {
+                if let Some(status) = parse_frame(&frame)? {
+                    return Ok(Some(status));
+                }
+            }
+            match self.response.chunk().await? {
+                Some(bytes) => self.buffer.extend_from_slice(&bytes),
+                None => return Ok(None),
+            }
+        }
+    }
+}
+
+/// Remove and return the first complete frame (up to a blank line).
+fn take_frame(buffer: &mut Vec<u8>) -> Option<String> {
+    let find = |separator: &[u8]| {
+        let at = buffer
+            .windows(separator.len())
+            .position(|w| w == separator)?;
+        Some((at, at + separator.len()))
+    };
+    let (end, next) = match (find(b"\n\n"), find(b"\r\n\r\n")) {
+        (Some(lf), Some(crlf)) => lf.min(crlf),
+        (lf, crlf) => lf.or(crlf)?,
+    };
+    let frame = String::from_utf8_lossy(&buffer[..end]).into_owned();
+    buffer.drain(..next);
+    Some(frame)
+}
+
+/// The job status in a frame; `None` for comments and other events.
+fn parse_frame(frame: &str) -> Result<Option<JobStatus>> {
+    let mut event = "message";
+    let mut data = Vec::new();
+    for line in frame.lines() {
+        let (field, value) = line.split_once(':').unwrap_or((line, ""));
+        let value = value.strip_prefix(' ').unwrap_or(value);
+        match field {
+            "event" => event = value,
+            "data" => data.push(value),
+            _ => {}
+        }
+    }
+    if event != JOB_EVENT || data.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_str(&data.join("\n"))
+        .map(Some)
+        .map_err(|error| ClientError::BadEvent(error.to_string()))
+}
+
 async fn decode<T: DeserializeOwned>(response: reqwest::Response) -> Result<T> {
     if response.status().is_success() {
         Ok(response.json().await?)
@@ -217,4 +312,34 @@ pub fn read_token(home: &Path) -> Option<String> {
     let token = std::fs::read_to_string(paths::token_file(home)).ok()?;
     let token = token.trim();
     (!token.is_empty()).then(|| token.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frames_split_on_blank_lines_and_skip_comments() {
+        let status = r#"{"id":"job-1","kind":"translate_subtitle","state":"cancelled",
+"phase":"cancelled","progress":null,"input":"/a.srt","output":null,"target_language":"pt-BR",
+"created_at_ms":1,"started_at_ms":null,"finished_at_ms":2,"error":null}"#
+            .replace('\n', "");
+        let mut buffer =
+            format!(": keep-alive\n\nevent: job\ndata: {status}\n\nevent: job\r\n").into_bytes();
+
+        let comment = take_frame(&mut buffer).unwrap();
+        assert_eq!(parse_frame(&comment).unwrap(), None);
+        let job = parse_frame(&take_frame(&mut buffer).unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(job.state, animesubs_api::JobState::Cancelled);
+        assert_eq!(
+            take_frame(&mut buffer),
+            None,
+            "incomplete frame stays buffered"
+        );
+
+        assert!(parse_frame("event: job\ndata: {").is_err());
+        assert_eq!(parse_frame("event: other\ndata: {}").unwrap(), None);
+    }
 }

@@ -73,6 +73,15 @@ enum Command {
     Job { id: String },
     /// Print all server jobs as JSON.
     Jobs,
+    /// Cancel a queued or running server job and print it as JSON.
+    Cancel { id: String },
+    /// Print job updates from the server, one JSON status per line, as they
+    /// happen (current jobs first).
+    Events {
+        /// Only this job; exit after its final state.
+        #[arg(long, value_name = "ID")]
+        job: Option<String>,
+    },
     /// Stop the running server.
     Stop,
 }
@@ -170,6 +179,24 @@ async fn run(cli: Cli) -> CliResult {
         }
         Command::Jobs => {
             print_json(&animesubs_client::connect(&home).await?.jobs().await?)?;
+        }
+        Command::Cancel { id } => {
+            print_json(
+                &animesubs_client::connect(&home)
+                    .await?
+                    .cancel_job(&id)
+                    .await?,
+            )?;
+        }
+        Command::Events { job } => {
+            let client = animesubs_client::connect(&home).await?;
+            let mut events = client.events(job.as_deref()).await?;
+            while let Some(status) = events.next().await? {
+                println!("{}", serde_json::to_string(&status)?);
+                if job.is_some() && status.state.is_terminal() {
+                    break;
+                }
+            }
         }
         Command::Stop => {
             animesubs_client::connect(&home).await?.shutdown().await?;

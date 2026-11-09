@@ -37,6 +37,16 @@ pub fn log_file(home: &Path) -> PathBuf {
     home.join("logs").join("server.log")
 }
 
+/// One `<id>.json` per job (status and spec without secrets), so jobs survive restarts.
+pub fn jobs_dir(home: &Path) -> PathBuf {
+    home.join("jobs")
+}
+
+/// Persisted state of one job.
+pub fn job_file(home: &Path, id: &str) -> PathBuf {
+    jobs_dir(home).join(format!("{id}.json"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,5 +58,6 @@ mod tests {
         assert_eq!(token_file(home), home.join("server-token"));
         assert_eq!(lock_file(home), home.join("server.lock"));
         assert_eq!(log_file(home), home.join("logs/server.log"));
+        assert_eq!(job_file(home, "job-1"), home.join("jobs/job-1.json"));
     }
 }

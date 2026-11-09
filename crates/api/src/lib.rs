@@ -227,11 +227,16 @@ pub enum JobState {
     Running,
     Succeeded,
     Failed,
+    /// Stopped by `POST /v1/jobs/{id}/cancel`; nothing was written to `output`.
+    Cancelled,
 }
 
 impl JobState {
     pub fn is_terminal(self) -> bool {
-        matches!(self, JobState::Succeeded | JobState::Failed)
+        matches!(
+            self,
+            JobState::Succeeded | JobState::Failed | JobState::Cancelled
+        )
     }
 }
 
@@ -248,7 +253,8 @@ pub struct JobStatus {
     pub id: String,
     pub kind: String,
     pub state: JobState,
-    /// Human-readable step: `queued`, `parsing`, `translating`, `writing`, `done`.
+    /// Current step: `queued`, `starting`, `parsing`, `translating`, `writing`,
+    /// then `done`, `failed` or `cancelled`. Clients must accept unknown phases.
     pub phase: String,
     pub progress: Option<Progress>,
     pub input: PathBuf,
@@ -260,10 +266,21 @@ pub struct JobStatus {
     pub error: Option<ApiError>,
 }
 
+/// `event:` name of the frames of `GET /v1/events`; their `data:` is a [`JobStatus`].
+pub const JOB_EVENT: &str = "job";
+
 /// Response of `GET /v1/jobs`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JobList {
     pub jobs: Vec<JobStatus>,
+}
+
+/// Contents of `<home>/jobs/<id>.json` (see [`paths::job_file`]): what a server
+/// keeps of a job across restarts. `spec` never carries the provider's `api_key`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedJob {
+    pub status: JobStatus,
+    pub spec: JobSpec,
 }
 
 /// Machine-readable error carried by every non-2xx response and failed job.
@@ -287,6 +304,10 @@ pub mod error_codes {
     pub const BAD_REQUEST: &str = "bad_request";
     pub const NOT_FOUND: &str = "not_found";
     pub const ALREADY_EXISTS: &str = "already_exists";
+    /// `POST /v1/jobs/{id}/cancel` on a job that already succeeded or failed (409).
+    pub const NOT_CANCELLABLE: &str = "not_cancellable";
+    /// The server stopped while the job was queued or running; reported after a restart.
+    pub const INTERRUPTED: &str = "interrupted";
     pub const UNSUPPORTED: &str = "unsupported";
     pub const MISSING_TOOL: &str = "missing_tool";
     pub const PROVIDER: &str = "provider_error";
@@ -361,5 +382,10 @@ mod tests {
         assert!(!JobState::Running.is_terminal());
         assert!(JobState::Succeeded.is_terminal());
         assert!(JobState::Failed.is_terminal());
+        assert!(JobState::Cancelled.is_terminal());
+        assert_eq!(
+            serde_json::to_string(&JobState::Cancelled).unwrap(),
+            "\"cancelled\""
+        );
     }
 }
